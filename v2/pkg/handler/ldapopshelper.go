@@ -461,6 +461,8 @@ func (l LDAPOpsHelper) searchMaybeTopLevelUsersNode(h LDAPOpsHandler, baseDN str
 		entries = append(entries, l.topLevelUsersNode(searchBaseDN))
 	}
 	if searchReq.Scope == ldap.ScopeSingleLevel || searchReq.Scope == ldap.ScopeWholeSubtree {
+		// This looks wrong, but it's not - because group format will assign an OU, and for the top-level
+		// of the users key we want to return the groups as OUs.
 		groupentries, err := h.FindPosixGroups("ou=users")
 		if err != nil {
 			return nil, ldap.LDAPResultOperationsError

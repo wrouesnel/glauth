@@ -284,7 +284,13 @@ func (h pamHandler) FindPosixGroups(hierarchy string) (entrylist []*ldap.Entry, 
 		attrs = append(attrs, &ldap.EntryAttribute{Name: "uniqueMember", Values: memberNames})
 		attrs = append(attrs, &ldap.EntryAttribute{Name: "memberUid", Values: memberUids})
 
-		dn := fmt.Sprintf("%s=%s,ou=groups,%s", h.cfg.Backend.GroupFormat, localGroup.Name, h.cfg.Backend.BaseDN)
+		var dn string
+		if hierarchy == "" {
+			dn = fmt.Sprintf("%s=%s,%s", h.cfg.Backend.GroupFormat, localGroup.Name, h.backend.BaseDN)
+		} else {
+			dn = fmt.Sprintf("%s=%s,%s,%s", h.cfg.Backend.GroupFormat, localGroup.Name, hierarchy, h.backend.BaseDN)
+		}
+
 		entries = append(entries, &ldap.Entry{DN: dn, Attributes: attrs})
 	}
 	return entries, nil
