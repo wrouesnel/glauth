@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/glauth/glauth/v2/pkg/assets"
+	"github.com/wrouesnel/glauth/v2/pkg/assets"
 )
 
 // TestAPI is a small test to make sure that behavior didn't change for the

@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/rs/zerolog"
 
-	"github.com/glauth/glauth/v2/pkg/config"
+	"github.com/wrouesnel/glauth/v2/pkg/config"
 )
 
 // Option defines a single option function.

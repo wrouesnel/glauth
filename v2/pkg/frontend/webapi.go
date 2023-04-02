@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/glauth/glauth/v2/pkg/assets"
+	"github.com/wrouesnel/glauth/v2/pkg/assets"
 )
 
 // RunAPI provides a basic REST API

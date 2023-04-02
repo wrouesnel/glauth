@@ -1,4 +1,4 @@
-package plugins
+package sqlutil
 
 import (
 	"database/sql"
@@ -14,10 +14,10 @@ import (
 	"strings"
 
 	"github.com/GeertJohan/yubigo"
-	"github.com/glauth/glauth/v2/pkg/config"
-	"github.com/glauth/glauth/v2/pkg/handler"
-	"github.com/glauth/glauth/v2/pkg/stats"
 	"github.com/nmcclain/ldap"
+	"github.com/wrouesnel/glauth/v2/pkg/config"
+	"github.com/wrouesnel/glauth/v2/pkg/handler"
+	"github.com/wrouesnel/glauth/v2/pkg/stats"
 )
 
 var configattributematcher = regexp.MustCompile(`(?i)\((?P<attribute>[a-zA-Z0-9]+)\s*=\s*(?P<value>.*)\)`)

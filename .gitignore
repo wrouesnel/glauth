@@ -1,5 +1,9 @@
+/.idea
+/.vscode
+
 .*.swp
 v2/certs/
 v2/bin
 v2/docker/assets/linux
 v2/gl.db
+v2/glauth

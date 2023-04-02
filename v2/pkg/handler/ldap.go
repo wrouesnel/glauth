@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/glauth/glauth/v2/pkg/config"
-	"github.com/glauth/glauth/v2/pkg/stats"
 	"github.com/nmcclain/ldap"
 	"github.com/pquerna/otp/totp"
+	"github.com/wrouesnel/glauth/v2/pkg/config"
+	"github.com/wrouesnel/glauth/v2/pkg/stats"
 )
 
 // global matcher

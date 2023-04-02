@@ -3,13 +3,15 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/rs/zerolog"
-	"plugin"
-
 	"github.com/GeertJohan/yubigo"
-	"github.com/glauth/glauth/v2/pkg/config"
-	"github.com/glauth/glauth/v2/pkg/handler"
 	"github.com/nmcclain/ldap"
+	"github.com/rs/zerolog"
+	glauth_mysql "github.com/wrouesnel/glauth/v2/pkg/backends/mysql"
+	glauth_pam "github.com/wrouesnel/glauth/v2/pkg/backends/pam"
+	glauth_postgres "github.com/wrouesnel/glauth/v2/pkg/backends/postgres"
+	glauth_sqlite "github.com/wrouesnel/glauth/v2/pkg/backends/sqlite"
+	"github.com/wrouesnel/glauth/v2/pkg/config"
+	"github.com/wrouesnel/glauth/v2/pkg/handler"
 )
 
 type LdapSvc struct {
@@ -51,30 +53,8 @@ func NewServer(opts ...Option) (*LdapSvc, error) {
 				handler.YubiAuth(s.yubiAuth),
 				handler.LDAPHelper(loh),
 			)
-		case "plugin":
-			plug, err := plugin.Open(s.c.Helper.Plugin)
-			if err != nil {
-				return nil, errors.New(fmt.Sprintf("Unable to load specified helper plugin: %s", err))
-			}
-			nph, err := plug.Lookup(s.c.Helper.PluginHandler)
-			if err != nil {
-				return nil, errors.New("unable to find 'NewPluginHandler' in loaded helper plugin")
-			}
-			initFunc, ok := nph.(func(...handler.Option) handler.Handler)
-
-			if !ok {
-				return nil, errors.New("loaded helper plugin lacks a proper NewPluginHandler function")
-			}
-			// Normally, here, we would somehow have imported our plugin into our
-			// handler namespace. Oops?
-			helper = initFunc(
-				handler.Logger(&s.log),
-				handler.Config(s.c),
-				handler.YubiAuth(s.yubiAuth),
-				handler.LDAPHelper(loh),
-			)
 		default:
-			return nil, fmt.Errorf("unsupported helper %s - must be one of 'config', 'plugin'", s.c.Helper.Datastore)
+			return nil, fmt.Errorf("unsupported helper %s - must be one of 'config'", s.c.Helper.Datastore)
 		}
 		s.log.Info().Str("datastore", s.c.Helper.Datastore).Msg("Using helper")
 	}
@@ -108,31 +88,42 @@ func NewServer(opts ...Option) (*LdapSvc, error) {
 				handler.YubiAuth(s.yubiAuth),
 				handler.LDAPHelper(loh),
 			)
-		case "plugin":
-			plug, err := plugin.Open(backend.Plugin)
-			if err != nil {
-				return nil, errors.New(fmt.Sprintf("Unable to load specified backend plugin: %s", err))
-			}
-			nph, err := plug.Lookup(backend.PluginHandler)
-			if err != nil {
-				return nil, errors.New("unable to find 'NewPluginHandler' in loaded backend plugin")
-			}
-			initFunc, ok := nph.(func(...handler.Option) handler.Handler)
-
-			if !ok {
-				return nil, errors.New("loaded backend plugin lacks a proper NewPluginHandler function")
-			}
+		case "mysql":
+			h = glauth_mysql.NewMySQLHandler(
+				handler.Logger(&s.log),
+				handler.Backend(backend),
+				handler.Config(s.c),
+				handler.YubiAuth(s.yubiAuth),
+				handler.LDAPHelper(loh),
+			)
+		case "postgres":
+			h = glauth_postgres.NewPostgresHandler(
+				handler.Logger(&s.log),
+				handler.Backend(backend),
+				handler.Config(s.c),
+				handler.YubiAuth(s.yubiAuth),
+				handler.LDAPHelper(loh),
+			)
+		case "sqlite":
+			h = glauth_sqlite.NewSQLiteHandler(
+				handler.Logger(&s.log),
+				handler.Backend(backend),
+				handler.Config(s.c),
+				handler.YubiAuth(s.yubiAuth),
+				handler.LDAPHelper(loh),
+			)
+		case "pam":
 			// Normally, here, we would somehow have imported our plugin into our
 			// handler namespace. Oops?
-			h = initFunc(
-				handler.Backend(backend),
+			h = glauth_pam.NewPamHandler(
 				handler.Logger(&s.log),
+				handler.Backend(backend),
 				handler.Config(s.c),
 				handler.YubiAuth(s.yubiAuth),
 				handler.LDAPHelper(loh),
 			)
 		default:
-			return nil, fmt.Errorf("unsupported backend %s - must be one of 'config', 'ldap','owncloud' or 'plugin'", backend.Datastore)
+			return nil, fmt.Errorf("unsupported backend %s - must be one of 'config', 'ldap','owncloud', 'mysql', 'postgres', 'sqlite', 'pam'", backend.Datastore)
 		}
 		s.log.Info().Str("datastore", backend.Datastore).Int("position", i).Msg("Loading backend")
 

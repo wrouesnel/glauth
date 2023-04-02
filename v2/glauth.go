@@ -7,14 +7,14 @@ import (
 	"github.com/arl/statsviz"
 	docopt "github.com/docopt/docopt-go"
 	"github.com/fsnotify/fsnotify"
-	"github.com/glauth/glauth/v2/pkg/config"
-	"github.com/glauth/glauth/v2/pkg/frontend"
-	"github.com/glauth/glauth/v2/pkg/logging"
-	"github.com/glauth/glauth/v2/pkg/server"
-	"github.com/glauth/glauth/v2/pkg/stats"
 	"github.com/hydronica/toml"
 	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog"
+	"github.com/wrouesnel/glauth/v2/pkg/config"
+	"github.com/wrouesnel/glauth/v2/pkg/frontend"
+	"github.com/wrouesnel/glauth/v2/pkg/logging"
+	"github.com/wrouesnel/glauth/v2/pkg/server"
+	"github.com/wrouesnel/glauth/v2/pkg/stats"
 	"gopkg.in/amz.v3/aws"
 	"gopkg.in/amz.v3/s3"
 	"io/ioutil"
@@ -698,7 +698,10 @@ func validateConfig(cfg config.Config) (*config.Config, error) {
 		case "config":
 		case "ldap":
 		case "owncloud":
-		case "plugin":
+		case "mysql":
+		case "postgres":
+		case "sqlite":
+		case "pam":
 		default:
 			return &cfg, fmt.Errorf("invalid backend %s - must be 'config', 'ldap', 'owncloud' or 'plugin'", cfg.Backends[i].Datastore)
 		}
