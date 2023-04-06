@@ -7,3 +7,12 @@ v2/bin
 v2/docker/assets/linux
 v2/gl.db
 v2/glauth
+
+node_modules
+/glauth
+/bin
+/.bin
+/.coverage
+/release
+/.cover.out
+/test-configs

@@ -1,7 +1,7 @@
 **IMPORTANT**
 
 This is a fork of the original GLAuth project intended for my own use. It brings all the normal plugins into the
-source tree and changes the build system for easier individual deployement and management.
+source tree and changes the build system for easier individual deployment and management. It also adds some bug fixes.
 
 # GLAuth: LDAP authentication server for developers
 Go-lang LDAP Authentication (GLAuth) is a secure, easy-to-use, LDAP server w/ configurable backends.
