@@ -40,3 +40,13 @@ config/*.cfg
 !config/sample-simple.cfg
 !config/sample-*.cfg
 *.local.cfg
+
+# Build system (magefile.go) output and tools
+/bin/
+/release/
+/.coverage/
+/.cover.out
+/.junit/
+/.bin/
+# Symlink to the current platform's binary made by `go run mage.go binary`
+/glauth

@@ -21,4 +21,19 @@ updates:
       - go
     schedule:
       interval: weekly
+      day: friday  - package-ecosystem: gomod
+    directory: /
+    labels:
+      - dependencies
+      - go
+    schedule:
+      interval: weekly
+      day: friday
+  - package-ecosystem: docker
+    directory: /
+    labels:
+      - dependencies
+      - docker
+    schedule:
+      interval: weekly
       day: friday
