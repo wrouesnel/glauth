@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -300,46 +302,74 @@ func (l LDAPOpsHelper) Search(ctx context.Context, h LDAPOpsHandler, bindDN stri
 	if !strings.HasSuffix(searchBaseDN, h.GetBackend().BaseDN) {
 		return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultInsufficientAccessRights}, fmt.Errorf("Search Error: search BaseDN %s is not in our BaseDN %s", searchBaseDN, h.GetBackend().BaseDN)
 	}
-	// Unless globally ignored, we will check that a user has capabilities allowing them to perform a search in the requested BaseDN
-	if !h.GetCfg().Behaviors.IgnoreCapabilities && !l.checkCapability(ctx, *boundUser, "search", []string{"*", searchBaseDN}) {
-		return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultInsufficientAccessRights}, fmt.Errorf("Search Error: no capability allowing BindDN %s to perform search in %s", bindDN, searchBaseDN)
-	}
+	// Unless globally ignored, a user needs a search capability for the requested
+	// BaseDN to see the directory. Without one, they can still read their own entry.
+	selfOnly := !h.GetCfg().Behaviors.IgnoreCapabilities && !l.checkCapability(ctx, *boundUser, "search", []string{"*", searchBaseDN})
 
+	entries, ldapcode, err := l.searchTree(ctx, h, baseDN, searchBaseDN, searchReq)
+	if err != nil || ldapcode != ldap.LDAPResultSuccess {
+		return ldap.ServerSearchResult{ResultCode: ldapcode}, err
+	}
+	if selfOnly {
+		entries = l.selfEntries(h, boundUser, entries)
+		h.GetLog().Info().Str("binddn", bindDN).Str("searchbasedn", searchBaseDN).Int("entries", len(entries)).Msg("no search capability: only returning the bound user's own entry")
+	}
+	return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldap.LDAPResultSuccess}, nil
+}
+
+// searchTree finds the entries of the directory tree for a search below our BaseDN.
+func (l LDAPOpsHelper) searchTree(ctx context.Context, h LDAPOpsHandler, baseDN string, searchBaseDN string, searchReq ldap.SearchRequest) ([]*ldap.Entry, ldap.LDAPResultCode, error) {
 	switch entries, ldapcode := l.searchMaybeTopLevelNodes(ctx, h, baseDN, searchBaseDN, searchReq); ldapcode {
 	case ldap.LDAPResultSuccess:
-		return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldapcode}, nil
+		return entries, ldapcode, nil
 	}
 
 	switch entries, ldapcode := l.searchMaybeTopLevelGroupsNode(ctx, h, baseDN, searchBaseDN, searchReq); ldapcode {
 	case ldap.LDAPResultSuccess:
-		return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldapcode}, nil
+		return entries, ldapcode, nil
 	}
 
 	switch entries, ldapcode := l.searchMaybeTopLevelUsersNode(ctx, h, baseDN, searchBaseDN, searchReq); ldapcode {
 	case ldap.LDAPResultSuccess:
-		return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldapcode}, nil
+		return entries, ldapcode, nil
 	}
 
 	filterEntity, err := ldap.GetFilterObjectClass(searchReq.Filter)
 	if err != nil {
-		return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultOperationsError}, fmt.Errorf("Search Error: error parsing filter: %s", searchReq.Filter)
+		return nil, ldap.LDAPResultOperationsError, fmt.Errorf("Search Error: error parsing filter: %s", searchReq.Filter)
 	}
 
 	switch entries, ldapcode := l.searchMaybePosixGroups(ctx, h, baseDN, searchBaseDN, searchReq, filterEntity); ldapcode {
 	case ldap.LDAPResultSuccess:
-		return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldapcode}, nil
+		return entries, ldapcode, nil
 	}
 
 	switch entries, ldapcode := l.searchMaybePosixAccounts(ctx, h, baseDN, searchBaseDN, searchReq, filterEntity); ldapcode {
 	case ldap.LDAPResultSuccess:
 		stats.Frontend.Add("search_successes", 1)
 		h.GetLog().Info().Str("filter", searchReq.Filter).Msg("AP: Search OK")
-		return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldapcode}, nil
+		return entries, ldapcode, nil
 	}
 
 	// So, this should be an ERROR condition! Right..?
-	entries := []*ldap.Entry{}
-	return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldap.LDAPResultSuccess}, nil
+	return []*ldap.Entry{}, ldap.LDAPResultSuccess, nil
+}
+
+// selfEntries keeps only the bound user's own account entries.
+func (l LDAPOpsHelper) selfEntries(h LDAPOpsHandler, user *config.User, entries []*ldap.Entry) []*ldap.Entry {
+	nameAttr := h.GetBackend().NameFormatAsArray[0]
+	uidNumber := strconv.Itoa(user.UIDNumber)
+	self := []*ldap.Entry{}
+	for _, entry := range entries {
+		if !slices.ContainsFunc(entry.GetAttributeValues("objectClass"), func(c string) bool { return strings.EqualFold(c, "posixAccount") }) {
+			continue
+		}
+		if !slices.Contains(entry.GetAttributeValues(nameAttr), user.Name) || entry.GetAttributeValue("uidNumber") != uidNumber {
+			continue
+		}
+		self = append(self, entry)
+	}
+	return self
 }
 
 // Returns: LDAPResultSuccess or any ldap code returned by findUser
