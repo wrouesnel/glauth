@@ -418,6 +418,11 @@ func (l LDAPOpsHelper) searchMaybeRootDSEQuery(ctx context.Context, h LDAPOpsHan
 	//attrs = append(attrs, &ldap.EntryAttribute{Name: "supportedSASLMechanisms", Values: []string{"GSSAPI", "PLAIN", "EXTERNAL"}})
 	attrs = append(attrs, &ldap.EntryAttribute{Name: "supportedLDAPVersion", Values: []string{"3"}})
 	attrs = append(attrs, &ldap.EntryAttribute{Name: "supportedControl", Values: []string{}})
+	supportedExtensions := []string{ldap.OIDWhoAmI}
+	if h.GetCfg().LDAP.TLS {
+		supportedExtensions = append(supportedExtensions, ldap.OIDStartTLS)
+	}
+	attrs = append(attrs, &ldap.EntryAttribute{Name: "supportedExtension", Values: supportedExtensions})
 	attrs = append(attrs, &ldap.EntryAttribute{Name: "supportedCapabilities", Values: []string{}})
 	attrs = append(attrs, &ldap.EntryAttribute{Name: "subschemaSubentry", Values: []string{"cn=schema"}})
 	attrs = append(attrs, &ldap.EntryAttribute{Name: "serverName", Values: []string{"unknown"}})

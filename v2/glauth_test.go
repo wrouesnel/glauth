@@ -292,6 +292,13 @@ func batteryOfTests(t *testing.T, env *testEnv) {
 			}
 		})
 	}
+
+	t.Run("asking who am I", func(t *testing.T) {
+		args := []string{"-H", addr, "-D", env.svcdn, "-w", "mysecret", "-x"}
+		if got, want := runAndSelect(t, getFirst, "ldapwhoami", args...), "dn:"+env.svcdn; got != want {
+			t.Fatalf("should get the bound DN\ngot:  %s\nwant: %s", got, want)
+		}
+	})
 }
 
 func TestSampleSimple(t *testing.T) {

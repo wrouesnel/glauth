@@ -72,3 +72,7 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+// The fork adds extended operation responses (Who Am I) and makes failed binds
+// leave the connection anonymous. Drop this once glauth/ldap has those changes.
+replace github.com/glauth/ldap => github.com/wrouesnel/ldap v0.0.0-20261026145254-7995e38c77c2
