@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/GeertJohan/yubigo"
+	"github.com/glauth/glauth/v2/pkg/backends"
 	"github.com/glauth/glauth/v2/pkg/config"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/amz.v3/aws"
@@ -468,8 +469,12 @@ func validateConfig(cfg *config.Config) (*config.Config, error) {
 		case "owncloud":
 		case "plugin":
 		case "embed":
+			// "embed" used to mean the sqlite plugin compiled into the binary.
+			cfg.Backends[i].Datastore = "sqlite"
 		default:
-			return cfg, fmt.Errorf("invalid backend %s - must be 'config', 'ldap', 'owncloud', 'plugin' or 'embed", cfg.Backends[i].Datastore)
+			if _, found := backends.Lookup(cfg.Backends[i].Datastore); !found {
+				return cfg, fmt.Errorf("invalid backend %s - must be 'config', 'ldap', 'owncloud', 'plugin' or a built-in backend (%s)", cfg.Backends[i].Datastore, strings.Join(backends.Names(), ", "))
+			}
 		}
 	}
 

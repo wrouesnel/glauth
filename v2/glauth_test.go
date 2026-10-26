@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/glauth/ldap"
 	"github.com/pquerna/otp/totp"
+
+	"github.com/glauth/glauth/v2/pkg/backends/sqlite"
 )
 
 type testEnv struct {
@@ -312,11 +315,31 @@ func TestSampleSimple(t *testing.T) {
 	stopSvc(svc)
 }
 
-func TestSQLitePlugin(t *testing.T) {
-	_, err := os.Stat("bin/sqlite.so")
+func TestSQLiteBackend(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gl.db")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		t.Log("Unable to find sqlite plugin")
-		t.SkipNow()
+		t.Fatal(err)
+	}
+	sqlite.SqliteBackend{}.CreateSchema(db)
+	seed, err := os.ReadFile("scripts/ci/seed-sqlite-plugin.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(seed)); err != nil {
+		t.Fatalf("seeding %s: %v", dbPath, err)
+	}
+	db.Close()
+
+	cfg, err := os.ReadFile("pkg/backends/sqlite/sample-database.cfg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(dir, "sample-database.cfg")
+	contents := strings.Replace(string(cfg), `database = "gl.db"`, fmt.Sprintf("database = %q", dbPath), 1)
+	if err := os.WriteFile(cfgPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
 	env := testEnv{
@@ -334,7 +357,7 @@ func TestSQLitePlugin(t *testing.T) {
 		checkemployeetype:     "",
 	}
 
-	svc := startSvc(t, "127.0.0.1:3893", glauthBinary(), "-c", "pkg/plugins/glauth-sqlite/sample-database.cfg")
+	svc := startSvc(t, "127.0.0.1:3893", glauthBinary(), "-c", cfgPath)
 	batteryOfTests(t, &env)
 	stopSvc(svc)
 }

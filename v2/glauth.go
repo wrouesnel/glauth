@@ -19,6 +19,7 @@ import (
 	"github.com/glauth/glauth/v2/internal/toml"
 	"github.com/glauth/glauth/v2/internal/tracing"
 	"github.com/glauth/glauth/v2/internal/version"
+	_ "github.com/glauth/glauth/v2/pkg/backends/all"
 	"github.com/glauth/glauth/v2/pkg/config"
 	"github.com/glauth/glauth/v2/pkg/frontend"
 	"github.com/glauth/glauth/v2/pkg/logging"

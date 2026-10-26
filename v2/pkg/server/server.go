@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"plugin"
+	"strings"
 
 	_tls "github.com/glauth/glauth/v2/internal/tls"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/GeertJohan/yubigo"
 	"github.com/glauth/glauth/v2/internal/monitoring"
+	"github.com/glauth/glauth/v2/pkg/backends"
 	"github.com/glauth/glauth/v2/pkg/config"
 	"github.com/glauth/glauth/v2/pkg/handler"
 	"github.com/glauth/ldap"
@@ -172,8 +174,12 @@ func NewServer(opts ...Option) (*LdapSvc, error) {
 				handler.Monitor(s.monitor),
 				handler.Tracer(s.tracer),
 			)
-		case "embed":
-			h, err = NewEmbed(
+		default:
+			factory, found := backends.Lookup(backend.Datastore)
+			if !found {
+				return nil, fmt.Errorf("unsupported backend %s - must be one of 'config', 'ldap', 'owncloud', 'plugin' or a built-in backend (%s)", backend.Datastore, strings.Join(backends.Names(), ", "))
+			}
+			h = factory(
 				handler.Backend(backend),
 				handler.Logger(&s.log),
 				handler.Config(s.c),
@@ -182,11 +188,6 @@ func NewServer(opts ...Option) (*LdapSvc, error) {
 				handler.Monitor(s.monitor),
 				handler.Tracer(s.tracer),
 			)
-			if err != nil {
-				return nil, err
-			}
-		default:
-			return nil, fmt.Errorf("unsupported backend %s - must be one of 'config', 'ldap','owncloud' or 'plugin'", backend.Datastore)
 		}
 		s.log.Info().Str("datastore", backend.Datastore).Int("position", i).Msg("Loading backend")
 

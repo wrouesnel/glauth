@@ -18,8 +18,11 @@ type (
 		Plugin                    string // Path to plugin library, for plugin backend only
 		PluginHandler             string // Name of plugin's main handler function
 		Database                  string // For Database backends only
-		GroupWithSearchCapability string // For PamLinux backend only
-		AnonymousDSE              bool   // For Config and Database backends only
+		GroupWithSearchCapability string   // For unix and pam backends only
+		UnixFilesDir              string   // For unix and pam backends only: directory holding passwd, shadow and group (default /etc)
+		MinUIDNumber              int      // For unix and pam backends only: hide accounts with a lower uid, unless they are in ExposeGroups or GroupWithSearchCapability
+		ExposeGroups              []string // For unix and pam backends only: members of these groups are shown regardless of MinUIDNumber
+		AnonymousDSE              bool     // For Config and Database backends only
 	}
 
 	Helper struct {

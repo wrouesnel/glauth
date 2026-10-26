@@ -21,12 +21,10 @@ GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 BUILD_VARS?=-s -w
 BUILD_FILES=.
 TRIM_FLAGS>?=-trimpath
-BUILD_TAGS?=noembed
+BUILD_TAGS?=
 
 # Targets
 MAIN_TARGETS?=linux/amd64,linux/386,linux/arm64,linux/arm-7,linux/riscv64,darwin/amd64,darwin/arm64,windows/amd64,windows/386
-PLUGIN_TARGETS?=linux/amd64,linux/386,linux/arm64,linux/arm-7,linux/riscv64,darwin/amd64,darwin/arm64
-EMBED_TARGETS?=windows/amd64
 
 # For release process
 GO_RELEASE_V=$(shell go version | { read _ _ v _; echo $${v#go}; })
@@ -34,9 +32,6 @@ GO_RELEASE_V=$(shell go version | { read _ _ v _; echo $${v#go}; })
 # Build
 GOOS?=linux
 GOARCH?=amd64
-
-# Plugins
--include pkg/plugins/*/Makefile
 
 #####################
 # High level commands
@@ -58,21 +53,8 @@ mocks:
 vet:
 	-go vet ./...
 .PHONY: vet
-#seedplugindb: @ stage the sqlite plugin and seed its test database
-seedplugindb:
-	@if [ -f bin/sqlite-linux-amd64.so ]; then \
-		echo "- staging sqlite plugin and seeding gl.db"; \
-		cp -f bin/sqlite-linux-amd64.so bin/sqlite.so; \
-		rm -f gl.db; \
-		glauth=$$(ls bin/$(GOOS)$(GOARCH)/glauth bin/glauth-$(GOOS)-$(GOARCH) 2>/dev/null | head -1); \
-		"$$glauth" -c pkg/plugins/glauth-sqlite/sample-database.cfg >/dev/null 2>&1 & \
-		pid=$$!; sleep 2; kill -TERM $$pid 2>/dev/null; wait $$pid 2>/dev/null || true; \
-		sqlite3 gl.db < scripts/ci/seed-sqlite-plugin.sql; \
-	fi
-.PHONY: seedplugindb
-
 #test: @ runs package, root integration, and shell integration tests
-test: mocks vet seedplugindb
+test: mocks vet
 	go test -v -cover -coverprofile coverage.out ./pkg/... ./internal/... .
 	$(MAKE) runtest
 #all: @ run build process for all binaries
@@ -100,20 +82,7 @@ setup: getdeps format
 
 prepbuild:
 	echo \- taking care of ignore files && \
-	sudo rm -rf bin/* >/dev/null && \
-	echo \- cleaning up plugins remnants && \
-	make forget-plugins && \
-	make remember-plugins
-
-forget-embed:
-	@if [ -f pkg/server/embed_sqlite.go ]; then \
-		mv pkg/server/embed_sqlite.go /tmp/; \
-	fi
-
-remember-embed:
-	@if [ ! -f pkg/server/embed_sqlite.go ]; then \
-		mv /tmp/embed_sqlite.go pkg/server/; \
-	fi
+	sudo rm -rf bin/* >/dev/null
 
 # Run integration test
 runtest:
@@ -132,51 +101,18 @@ format:
 devrun:
 	go run ${BUILD_FILES} -c sample-simple.cfg
 
-#testplugin: @ start GLAuth with a dynamically loaded plugin and stop it cleanly
-GLAUTH_BIN?=bin/glauth-linux-amd64
-PLUGIN_BIN?=bin/sqlite-linux-amd64.so
-PLUGIN_CONFIG?=pkg/plugins/glauth-sqlite/sample-database.cfg
-PLUGIN_LDAP_PORT?=13893
-PLUGIN_API_PORT?=15555
-
-testplugin:
-	@set -e; \
-	test -x "$(GLAUTH_BIN)"; \
-	test -r "$(PLUGIN_BIN)"; \
-	test -f "$(PLUGIN_CONFIG)"; \
-	tmpdir=$$(mktemp -d); \
-	trap 'rm -rf "$$tmpdir"' EXIT; \
-	sed \
-		-e 's#^[[:space:]]*plugin = .*#  plugin = "$(abspath $(PLUGIN_BIN))"#' \
-		-e "s#^[[:space:]]*database = .*#  database = \"$$tmpdir/gl.db\"#" \
-		-e 's#listen = "0.0.0.0:3893"#listen = "127.0.0.1:$(PLUGIN_LDAP_PORT)"#' \
-		-e 's#listen = "0.0.0.0:5555"#listen = "127.0.0.1:$(PLUGIN_API_PORT)"#' \
-		"$(PLUGIN_CONFIG)" > "$$tmpdir/config.cfg"; \
-	"$(GLAUTH_BIN)" -c "$$tmpdir/config.cfg" > "$$tmpdir/glauth.log" 2>&1 & \
-	pid=$$!; \
-	sleep 2; \
-	if ! kill -0 "$$pid" 2>/dev/null; then \
-		set +e; wait "$$pid"; status=$$?; set -e; \
-		cat "$$tmpdir/glauth.log"; \
-		exit $$status; \
-	fi; \
-	kill -TERM "$$pid"; \
-	set +e; wait "$$pid"; status=$$?; set -e; \
-	cat "$$tmpdir/glauth.log"; \
-	exit $$status
-
 mkbindir:
 	@echo "create directory bin/$(GOOS)$(GOARCH)"
 	@mkdir -p bin/$(GOOS)$(GOARCH)
 .PHONY: mkbindir
 
 build: mkbindir
-	@go build ${TRIM_FLAGS} -tags ${BUILD_TAGS} -ldflags "${BUILD_VARS}" -o bin/$(GOOS)$(GOARCH)/glauth -buildvcs .
+	@go build ${TRIM_FLAGS} -tags "${BUILD_TAGS}" -ldflags "${BUILD_VARS}" -o bin/$(GOOS)$(GOARCH)/glauth -buildvcs .
 	$(MAKE) sha256
 .PHONY: build
 
 builddebug: mkbindir
-	@go build ${TRIM_FLAGS} -tags ${BUILD_TAGS} -gcflags="all=-N -l" -o bin/$(GOOS)$(GOARCH)/glauth -buildvcs .
+	@go build ${TRIM_FLAGS} -tags "${BUILD_TAGS}" -gcflags="all=-N -l" -o bin/$(GOOS)$(GOARCH)/glauth -buildvcs .
 	$(MAKE) sha256
 .PHONY: builddebug
 
@@ -202,13 +138,6 @@ linuxarm64:
 linuxriscv64:
 	GOOS=linux GOARCH=riscv64 $(MAKE) build
 
-testing:
-	mkdir -p pkg/embed && \
-	cat pkg/plugins/glauth-sqlite/sqlite.go | sed -e 's/func main() {}//' -e 's/^package main/package embed/' > pkg/embed/sqlite.go  && \
-	go mod tidy && \
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 BUILD_TAGS=embedsqlite $(MAKE) build && \
-	rm -rf pkg/embed
-
 darwinamd64:
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 $(MAKE) build
 
@@ -224,82 +153,11 @@ winamd64:
 verify:
 	@for binary in linux386 linuxamd64 linuxarm linuxarm64 linuxriscv64 darwinamd64 darwinarm64 win386 winamd64; do cd bin/$$binary && sha256sum glauth.sha256 -c && cd ../..; done
 
-pull-plugin-dependencies:
-	(for pkg in $$(cat $$M/go.mod | awk '/^require [a-z]/{print $$2"@"$$3} /^\)/{rblock=0} rblock{if($$4!="indirect" && $$1!~"glauth"){print $$1"@"$$2}} /^require \(/{rblock=1}'); do if [ "$$(grep $${pkg%@*} go.mod 2>/dev/null)" = "" ]; then go get $$pkg; fi; done)
-
-#prepare-plugins-buid: @ pull plugins dependencies for local building
-prepare-plugins-build:
-	@M=pkg/plugins/glauth-sqlite make pull-plugin-dependencies && \
-	M=pkg/plugins/glauth-mysql make pull-plugin-dependencies && \
-	M=pkg/plugins/glauth-postgres make pull-plugin-dependencies && \
-	M=pkg/plugins/glauth-pam make pull-plugin-dependencies
-
-forget-plugin:
-	rm -rf $M ../.git/modules/v2/$M; \
-	git config --remove-section submodule.v2/$M; \
-	git rm --cache $M; \
-	go mod tidy; \
-	true
-
-#forget-plugin: @ remove plugins, restoring original file structure
-forget-plugins:
-	for pkg in pkg/plugins/*; do \
-		if [ -d "$$pkg" ]; then \
-			P=$$(echo $$pkg | cut -d'/' -f 3) M=$$pkg make forget-plugin >/dev/null 2>&1;\
-		fi; \
-	done; \
-	rm -rf buildlogs
-
-remember-plugins:
-	cd ../ && \
-	for module in $$(cat .gitmodules | awk '/path =/{P=$$3} /url =/{print $$3 "," P}'); do \
-		git submodule add $${module%%,*} $${module#*,}; \
-	done; \
-	git submodule update --init --recursive
-
 _buildmain:
 	@xgo -v -ldflags="${BUILD_VARS}" -trimpath -go ${GO_RELEASE_V} -out glauth -dest bin -buildvcs=false --targets="${MAIN_TARGETS}" .
 
 #buildmain: @ build main binaries for distribution
 buildmain: prepbuild _buildmain
-
-buildsingleembed:
-	git checkout -b build_embeds && \
-	mkdir -p pkg/embed && \
-	cat pkg/plugins/$P/$M | sed -e 's/func main() {}//' -e 's/^package main/package embed/' > pkg/embed/$M  && \
-	go mod tidy && \
-	git add pkg/embed/$M go.mod go.sum && \
-	git commit -m "build cruft" && \
-	git push -u origin build_embeds && \
-	xgo -v -ldflags="${BUILD_VARS}" --tags=$T -trimpath -go ${GO_RELEASE_V} -out glauth -dest bin -buildvcs=false --targets="${EMBED_TARGETS}" . && \
-	rm -rf pkg/embed && \
-	git checkout master && \
-	git push -d origin build_embeds && \
-	git branch -D build_embeds
-
-_buildmainembeds:
-	P=glauth-sqlite M=sqlite.go T=embedsqlite make buildsingleembed
-
-#buildmainembeds: @ build main binaries for distribution, including embedded plugins
-buildmainembeds: prepbuild _buildmainembeds
-
-buildplugin: 
-ifeq ($P,pam)
-	xgo -v -ldflags="${BUILD_VARS}" -trimpath -go ${GO_RELEASE_V} -out $P -dest bin -buildvcs=false -buildmode=plugin --targets="${PLUGIN_TARGETS}" --pkg $M/$P.go --bringupcmd 'apt update && apt install -y libpam0g-dev' .
-else
-	xgo -v -ldflags="${BUILD_VARS}" -trimpath -go ${GO_RELEASE_V} -out $P -dest bin -buildvcs=false -buildmode=plugin --targets="${PLUGIN_TARGETS}" --pkg $M/$P.go . 
-endif
-	(cd bin && for lib in $$(ls $$P-* | grep -v \.so$$); do sudo mv $$lib $$lib.so; done); 
-
-_buildplugins: prepare-plugins-build
-	for pkg in pkg/plugins/*; do \
-		if [ -d "$$pkg" ]; then \
-			M=pkg/plugins/$$(echo $$pkg | cut -d'/' -f 3) && P=$$(echo $$M | grep -oP 'glauth-\K\w+') && M=$$M P=$$P make buildplugin;\
-		fi; \
-	done; \
-
-#buildplugins: @ build base plugins for distribution
-buildplugins: forget-embed _buildplugins remember-embed
 
 _checkdockerauth:
 	@if ! grep -q "index.docker.io" $(HOME)/.docker/config.json; then \
@@ -322,28 +180,9 @@ builddockermain:
 	docker buildx build --tag ghcr.io/$$REPO/glauth:$$TAG -t ghcr.io/$$REPO/glauth:latest -f docker/Dockerfile-standalone --platform linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64 --push docker && \
 	docker buildx build --tag $$REPO/glauth:$$TAG -t $$REPO/glauth:latest -f docker/Dockerfile-standalone --platform linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64 --push docker
 
-builddockerplugins:
-	$(if $(TAG),,$(error ❌ Must set TAG))
-	$(if $(REPO),,$(error ❌ Must set REPO - glauth or other))
-	@mkdir -p docker/assets/linux/amd64 docker/assets/linux/arm64 docker/assets/linux/arm/v7 docker/assets/linux/riscv64 && \
-	cp -f bin/sqlite-linux-amd64.so docker/assets/linux/amd64/sqlite.so && \
-	cp -f bin/sqlite-linux-arm64.so docker/assets/linux/arm64/sqlite.so && \
-	cp -f bin/sqlite-linux-arm-7.so docker/assets/linux/arm/v7/sqlite.so && \
-	cp -f bin/sqlite-linux-riscv64.so docker/assets/linux/riscv64/sqlite.so && \
-	cp -f bin/mysql-linux-amd64.so docker/assets/linux/amd64/mysql.so && \
-	cp -f bin/mysql-linux-arm64.so docker/assets/linux/arm64/mysql.so && \
-	cp -f bin/mysql-linux-arm-7.so docker/assets/linux/arm/v7/mysql.so && \
-	cp -f bin/mysql-linux-riscv64.so docker/assets/linux/riscv64/mysql.so && \
-	cp -f bin/postgres-linux-amd64.so docker/assets/linux/amd64/postgres.so && \
-	cp -f bin/postgres-linux-arm64.so docker/assets/linux/arm64/postgres.so && \
-	cp -f bin/postgres-linux-arm-7.so docker/assets/linux/arm/v7/postgres.so && \
-	cp -f bin/postgres-linux-riscv64.so docker/assets/linux/riscv64/postgres.so && \
-	docker buildx build --tag ghcr.io/$$REPO/glauth-plugins:$$TAG -t ghcr.io/$$REPO/glauth-plugins:latest -f docker/Dockerfile-plugins --platform linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64 --push docker && \
-	docker buildx build --tag $$REPO/glauth-plugins:$$TAG -t $$REPO/glauth-plugins:latest -f docker/Dockerfile-plugins --platform linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64 --push docker
+builddocker: _checkdockerauth builddockermain
 
-builddocker: _checkdockerauth builddockermain builddockerplugins
-
-buildeverything: prepbuild forget-embed _buildplugins _buildmain testplugin remember-embed _buildmainembeds builddocker
+buildeverything: prepbuild _buildmain builddocker
 
 #testdocker: @ run integration test using docker
 testdocker:
@@ -370,23 +209,9 @@ testdocker:
 	docker stop glauth-test && \
 	while [ "$$(docker ps -q -f name=glauth-test)" != "" ]; do sleep 1; done; \
 	docker rm glauth-test && \
-	echo "==> Running glauth plugins container..." && \
-	docker run -d --name glauth-test -p 3893:3893 $$REPO/glauth-plugins:latest && \
-	sleep 5 && \
-	if [ "$$(ldapsearch -LLL -H ldap://localhost:3893 -D cn=serviceuser,ou=svcaccts,dc=glauth,dc=com -w mysecret -x -bdc=glauth,dc=com cn=hackers | grep posixAccount)" != "" ]; then \
-		echo "Checked: Glauth is responding properly to ldapsearch query."; \
-	else \
-		echo "glauth check did not pass. Aborting."; \
-		exit 1; \
-	fi && \
-	echo "==> Stopping glauth plugins container..." && \
-	docker stop glauth-test  && \
-	while [ "$$(docker ps -q -f name=glauth-test)" != "" ]; do sleep 1; done; \
-	docker rm glauth-test && \
 	echo "==> Testing complete."
 
 .PHONY: all \
 	prepbuild run test fast binaries setup getdeps runtest updatetest format devrun \
 	linux386 linuxamd64 linuxarm linuxarm64 linuxriscv64 darwinamd64 darwinarm64 win386 winamd64 verify \
-	pull-plugin pull-base-plugins forget-plugin forget-plugins buildmain buildplugin build \
-	buildplugins builddockermain builddockerplugins builddocker testdocker testplugin buildeverything
+	buildmain build builddockermain builddocker testdocker buildeverything
