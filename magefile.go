@@ -291,47 +291,48 @@ func gitOutput(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// versionTagPrefix is the prefix of upstream GLAuth's release tags, e.g.
-// GLAuth-v2.5.4. It is stripped from versions. The fork's own releases are tagged
-// v*, and git describe picks whichever release tag is nearest.
-const versionTagPrefix = "GLAuth-"
+// Releases of this fork are tagged wrouesnel-v<semver>, e.g. wrouesnel-v2.6.0.
+// Versions are the semver with versionMarker appended as build metadata, e.g.
+// v2.6.0+wrouesnel, or v2.6.0-3-gabc1234+wrouesnel between releases. Upstream's
+// GLAuth-v* tags are ignored.
+const (
+	versionTagPrefix = "wrouesnel-"
+	versionMarker    = "+wrouesnel"
+)
 
-// describeVersion runs git describe over release tags and strips versionTagPrefix.
-func describeVersion(args ...string) string {
-	args = append([]string{"describe", "--tags", "--match", versionTagPrefix + "v*", "--match", "v*"}, args...)
-	return strings.TrimPrefix(gitOutput(args...), versionTagPrefix)
+// describeTag runs git describe over this fork's release tags.
+func describeTag(args ...string) string {
+	return gitOutput(append([]string{"describe", "--tags", "--match", versionTagPrefix + "v*"}, args...)...)
 }
 
+// version is the full version stamped into binaries. VERSION overrides it as is.
 var version = func() string {
 	if v := os.Getenv("VERSION"); v != "" {
 		return v
 	}
-	out := describeVersion("--dirty")
-
-	if out == "" {
-		// Try and at least describe the git commit.
-		out = gitOutput("describe", "--dirty", "--always")
-		if out != "" {
-			//nolint:perfsprint
-			return fmt.Sprintf("v0.0.0-0-%s", out)
-		}
-		return "v0.0.0"
+	if out := describeTag("--dirty"); out != "" {
+		return strings.TrimPrefix(out, versionTagPrefix) + versionMarker
 	}
 
-	return out
+	// No release tag yet: at least describe the git commit. --always with --match
+	// falls back to the bare commit, ignoring upstream's tags.
+	if out := describeTag("--dirty", "--always"); out != "" {
+		return "v0.0.0-0-" + out + versionMarker
+	}
+	return "v0.0.0" + versionMarker
 }()
 
+// versionShort names build directories and release archives. It is the
+// release tag, e.g. wrouesnel-v2.6.0, which avoids a "+" in file names.
+// VERSION_SHORT overrides it.
 var versionShort = func() string {
 	if v := os.Getenv("VERSION_SHORT"); v != "" {
 		return v
 	}
-	out := describeVersion("--abbrev=0")
-
-	if out == "" {
-		return "v0.0.0"
+	if out := describeTag("--abbrev=0"); out != "" {
+		return out
 	}
-
-	return out
+	return versionTagPrefix + "v0.0.0"
 }()
 
 var concurrency = func() int {

@@ -1,7 +1,7 @@
-Use README.md files to understand program intent and structure. This is a fork of
-glauth/glauth that aims to contribute changes upstream, so keep changes to upstream
-code minimal and in upstream's style, and keep fork-only changes (build system,
-CI, container) separate from changes meant for upstream.
+Use README.md files to understand program intent and structure. This is a fork
+inspired by glauth/glauth, developed as its own software: changes aren't meant to go
+back upstream. Upstream changes can still be merged in when they're useful, so prefer
+changes that don't needlessly rewrite upstream code.
 
 The Go module is in `v2/` (module `github.com/glauth/glauth/v2`). The repository
 root holds a separate module for the build system (`magefile.go`), joined by
@@ -28,3 +28,10 @@ Run all build commands from the repository root. `go run mage.go -l` lists every
 it forward when merging upstream.
 
 CI runs `style`, `lint`, `test` and `binary`, all of which must pass.
+
+## Releases and versions
+
+Releases are tagged `wrouesnel-v<semver>`, e.g. `wrouesnel-v2.6.0`; pushing such a tag
+builds release archives and a container image. Upstream's `GLAuth-v*` tags are ignored.
+The version stamped into binaries is the semver with `+wrouesnel` appended as build
+metadata, e.g. `v2.6.0+wrouesnel`, or `v2.6.0-3-gabc1234+wrouesnel` between releases.

@@ -20,10 +20,11 @@ Go-lang LDAP Authentication (GLAuth) is a secure, easy-to-use, LDAP server w/ co
 Use it to centralize account management across your Linux servers, your OSX machines, and your support applications (Jenkins, Apache/Nginx, Graylog2, and many more!).
 
 ### About this fork
-This is a fork of [glauth/glauth](https://github.com/glauth/glauth) that aims to contribute its changes upstream. It differs in that:
+This is a fork inspired by [glauth/glauth](https://github.com/glauth/glauth), developed as its own software rather than to contribute back upstream. It differs in that:
 
 - Every backend is compiled into one binary, with no cgo: `config`, `ldap`, `owncloud`, `sqlite`, `mysql`, `postgres` and `unix`. `unix` serves the host's `passwd`, `shadow` and `group` and checks passwords against `shadow` itself. The `pam` backend needs cgo, so it's only built with `GO_BUILD_TAGS=pam`.
 - It is built with [mage](https://magefile.org): `go run mage.go binary` builds `./glauth`, and `go run mage.go -l` lists the other targets (`test`, `lint`, `style`, `releaseAll`, …). The container image is `ghcr.io/wrouesnel/glauth`.
+- Releases are tagged `wrouesnel-v<semver>`, and its versions carry a `+wrouesnel` marker, e.g. `v2.6.0+wrouesnel`.
 
 ### Contributing
 - Please base all Pull Requests on [dev](https://github.com/glauth/glauth/tree/dev), not master.

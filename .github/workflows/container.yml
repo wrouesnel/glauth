@@ -10,7 +10,7 @@ on:
       - master
   push:
     tags:
-      - v*
+      - wrouesnel-v*
 
 env:
   REGISTRY: ghcr.io
@@ -56,9 +56,10 @@ jobs:
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
             type=schedule
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            # Release tags are wrouesnel-v<semver>: tag images 2.6.0, 2.6 and 2.
+            type=match,pattern=^wrouesnel-v(\d+\.\d+\.\d+.*)$,group=1
+            type=match,pattern=^wrouesnel-v(\d+\.\d+)\.\d+$,group=1
+            type=match,pattern=^wrouesnel-v(\d+)\.\d+\.\d+$,group=1
             type=ref,event=branch
             type=ref,event=pr
             type=sha
