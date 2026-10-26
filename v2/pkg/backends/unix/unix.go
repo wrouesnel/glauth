@@ -210,9 +210,7 @@ func (h unixHandler) FindUser(ctx context.Context, userName string, searchByUPN 
 	if ldapUser.GivenName == "" {
 		ldapUser.GivenName = a.Name
 	}
-	for _, gid := range snap.memberOf[a.Name][1:] {
-		ldapUser.OtherGroups = append(ldapUser.OtherGroups, gid)
-	}
+	ldapUser.OtherGroups = append(ldapUser.OtherGroups, snap.memberOf[a.Name][1:]...)
 	if h.backend.GroupWithSearchCapability != "" && h.inGroup(snap, a.Name, h.backend.GroupWithSearchCapability) {
 		ldapUser.Capabilities = []config.Capability{{Action: "search", Object: "*"}}
 	}

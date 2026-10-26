@@ -31,6 +31,8 @@ func (b SqliteBackend) GetPrepareSymbol() string {
 }
 
 // Create db/schema if necessary
+//
+//nolint:errcheck // schema statements are best effort, as they were in the plugin
 func (b SqliteBackend) CreateSchema(db *sql.DB) {
 	statement, _ := db.Prepare(`
 CREATE TABLE IF NOT EXISTS users (
@@ -66,6 +68,8 @@ CREATE TABLE IF NOT EXISTS users (
 }
 
 // Migrate schema if necessary
+//
+//nolint:errcheck // schema statements are best effort, as they were in the plugin
 func (b SqliteBackend) MigrateSchema(db *sql.DB, checker func(*sql.DB, string, string) bool) {
 	if !checker(db, "users", "sshkeys") {
 		statement, _ := db.Prepare("ALTER TABLE users ADD COLUMN sshkeys TEXT DEFAULT ''")
@@ -78,4 +82,3 @@ func (b SqliteBackend) MigrateSchema(db *sql.DB, checker func(*sql.DB, string, s
 		statement.Exec()
 	}
 }
-

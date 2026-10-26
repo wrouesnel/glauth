@@ -14,10 +14,10 @@ type (
 		GroupFormat               string   // e.g. cn, ou, gid, or a comma separated list of them
 		GroupFormatAsArray        []string // we will explode GroupFormat on commas
 		SSHKeyAttr                string
-		UseGraphAPI               bool   // For ownCloud backend only
-		Plugin                    string // Path to plugin library, for plugin backend only
-		PluginHandler             string // Name of plugin's main handler function
-		Database                  string // For Database backends only
+		UseGraphAPI               bool     // For ownCloud backend only
+		Plugin                    string   // Path to plugin library, for plugin backend only
+		PluginHandler             string   // Name of plugin's main handler function
+		Database                  string   // For Database backends only
 		GroupWithSearchCapability string   // For unix and pam backends only
 		UnixFilesDir              string   // For unix and pam backends only: directory holding passwd, shadow and group (default /etc)
 		MinUIDNumber              int      // For unix and pam backends only: hide accounts with a lower uid, unless they are in ExposeGroups or GroupWithSearchCapability
