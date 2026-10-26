@@ -631,7 +631,8 @@ func lintArgs(args ...string) []string {
 
 // Lint runs golangci-lint for code quality. CI will run this before accepting PRs.
 func Lint() error {
-	mg.Deps(Tools)
+	// The tests use generated mocks, which aren't committed.
+	mg.Deps(Tools, GoGenerate)
 	return runIn("golangci-lint", lintArgs("run", "./...")...)
 }
 
