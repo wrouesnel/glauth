@@ -24,7 +24,10 @@ import (
 	"github.com/glauth/glauth/v2/pkg/config"
 )
 
-const defaultSessionLifetime = 12 * time.Hour
+const (
+	defaultSessionLifetime  = 12 * time.Hour
+	defaultAdminReauthAfter = 15 * time.Minute
+)
 
 // Provider is an OpenID Connect provider, served as an http.Handler.
 type Provider struct {
@@ -38,6 +41,7 @@ type Provider struct {
 	basePath   string
 	settings   atomic.Pointer[settings]
 	adminPath  string
+	adminFresh time.Duration // how recent an admin's password must be; 0 accepts any
 	adminMu    sync.Mutex
 	adminMtime time.Time
 	ui         *ui
@@ -84,6 +88,15 @@ func New(cfg config.OIDC, auth Authenticator, log zerolog.Logger) (*Provider, er
 	p.adminPath = cfg.AdminFile
 	if p.adminPath == "" && cfg.StateDir != "" {
 		p.adminPath = filepath.Join(cfg.StateDir, adminFileName)
+	}
+	switch cfg.AdminReauthAfter {
+	case "":
+		p.adminFresh = defaultAdminReauthAfter
+	case "never":
+	default:
+		if p.adminFresh, err = time.ParseDuration(cfg.AdminReauthAfter); err != nil || p.adminFresh <= 0 {
+			return nil, fmt.Errorf("oidc: adminReauthAfter %q is not a duration such as 15m, or never", cfg.AdminReauthAfter)
+		}
 	}
 	if len(cfg.AdminGroups) > 0 && p.adminPath == "" {
 		return nil, errors.New("oidc: adminGroups needs stateDir or adminFile, to save what admins change")

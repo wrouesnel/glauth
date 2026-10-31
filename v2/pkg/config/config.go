@@ -153,6 +153,10 @@ type (
 		// AdminGroups may manage the provider at https://auth.<Domain>/admin: change
 		// settings, see and end sessions, and block applications.
 		AdminGroups []string
+		// AdminReauthAfter is how recently admins must have given their password to use
+		// the admin page, as a duration such as "15m" (the default), or "never" to accept
+		// any session.
+		AdminReauthAfter string
 		// AdminFile holds the settings changed on the admin page (default <StateDir>/oidc-admin.toml).
 		AdminFile string
 	}

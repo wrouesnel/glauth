@@ -82,10 +82,6 @@ func (p *Provider) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/settings", p.admin(p.adminSaveSettings))
 }
 
-// adminSignInFresh is how recently an admin must have given their password to use
-// the admin pages.
-const adminSignInFresh = 15 * time.Minute
-
 type adminHandler func(w http.ResponseWriter, r *http.Request, admin *session)
 
 // admin lets members of the admin groups through if they gave their password recently,
@@ -106,7 +102,7 @@ func (p *Provider) admin(next adminHandler) http.HandlerFunc {
 			p.message(w, http.StatusForbidden, "No access", sess.user.Username+" isn't an administrator. Sign out at "+p.issuer.String()+"/logout to use another account.")
 			return
 		}
-		if time.Since(sess.authTime) > adminSignInFresh {
+		if !p.adminFreshEnough(sess, time.Now()) {
 			// A form sent now is lost, but the admin returns to the page to send it again.
 			http.Redirect(w, r, p.basePath+"/login?next="+url.QueryEscape(p.basePath+"/admin"), http.StatusSeeOther)
 			return
@@ -122,6 +118,12 @@ func (p *Provider) admin(next adminHandler) http.HandlerFunc {
 		}
 		next(w, r, sess)
 	}
+}
+
+// adminFreshEnough says whether the session's password is recent enough for the
+// admin pages.
+func (p *Provider) adminFreshEnough(sess *session, now time.Time) bool {
+	return p.adminFresh == 0 || now.Sub(sess.authTime) <= p.adminFresh
 }
 
 func (p *Provider) adminDone(w http.ResponseWriter, r *http.Request, notice string) {

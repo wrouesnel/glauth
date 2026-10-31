@@ -35,7 +35,7 @@ func (p *Provider) loginPage(w http.ResponseWriter, r *http.Request) {
 			p.showLogin(w, r, http.StatusOK, nil, nil, next, "", "")
 			return
 		}
-		if now.Sub(sess.authTime) <= adminSignInFresh {
+		if p.adminFreshEnough(sess, now) {
 			http.Redirect(w, r, next, http.StatusFound)
 			return
 		}

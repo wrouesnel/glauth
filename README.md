@@ -76,7 +76,7 @@ With `adminGroups = ["admins"]` in `[oidc]`, members of those groups can manage 
 - add applications: limit one to some groups, give it a secret (shown once, then stored hashed), or allow callback URLs outside its own host.
 - change the name on the sign-in page, the session lifetime and the extra trusted domains.
 
-The admin pages ask for the password again if it was last given more than 15 minutes ago, so an unattended signed-in browser can't be used to change anything. Giving it renews the browser's session.
+The admin pages ask for the password again if it was last given more than 15 minutes ago, so an unattended signed-in browser can't be used to change anything. Giving it renews the browser's session. Set `adminReauthAfter` in `[oidc]` to change the 15 minutes (for example `"1h"`), or to `"never"` to accept any signed-in session.
 
 Sessions and tokens are kept in `<stateDir>/oidc-state.db`, so a restart doesn't sign anyone out. Session cookies and refresh tokens are only stored hashed. Without a `stateDir`, everything is kept in memory and lost on restart.
 

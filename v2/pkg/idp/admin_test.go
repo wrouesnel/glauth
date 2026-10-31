@@ -282,12 +282,17 @@ func TestAdminSettings(t *testing.T) {
 func timeNow() time.Time { return time.Now() }
 
 func TestAdminWantsRecentPassword(t *testing.T) {
-	h := newHarness(t, adminConfig(t))
+	cfg := adminConfig(t)
+	cfg.AdminReauthAfter = "10m"
+	h := newHarness(t, cfg)
 	h.adminSignIn("alice")
 	tokens := h.signInTo(testApp, "alice")
-	for _, sess := range h.p.store.sessions {
-		sess.authTime = sess.authTime.Add(-adminSignInFresh - time.Minute)
+	age := func(h *harness) {
+		for _, sess := range h.p.store.sessions {
+			sess.authTime = sess.authTime.Add(-11 * time.Minute)
+		}
 	}
+	age(h)
 
 	again := "/login?next=%2Fadmin"
 	if resp, _ := h.get("/admin"); resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != again {
@@ -320,5 +325,24 @@ func TestAdminWantsRecentPassword(t *testing.T) {
 	h.adminPost("/login", url.Values{"next": {"/admin"}, "username": {"bob"}, "password": {"correct horse"}})
 	if n := len(h.p.store.listSessions(timeNow())); n != 2 {
 		t.Fatalf("got %d sessions after another user signed in, want 2", n)
+	}
+
+	cfg = adminConfig(t)
+	cfg.AdminReauthAfter = "never"
+	h = newHarness(t, cfg)
+	h.adminSignIn("alice")
+	age(h)
+	if resp, _ := h.get("/admin"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin page with an old sign-in and adminReauthAfter = never: %d", resp.StatusCode)
+	}
+	if resp, _ := h.get("/login?next=%2Fadmin"); resp.StatusCode != http.StatusFound {
+		t.Fatalf("admin sign-in with adminReauthAfter = never: %d", resp.StatusCode)
+	}
+
+	for _, bad := range []string{"soon", "0s", "-5m"} {
+		cfg.AdminReauthAfter = bad
+		if _, err := New(cfg, users, zerolog.Nop()); err == nil {
+			t.Errorf("adminReauthAfter %q was accepted", bad)
+		}
 	}
 }
