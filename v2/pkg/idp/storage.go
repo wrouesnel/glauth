@@ -221,6 +221,22 @@ func (s *storage) newSession(user *Identity, now time.Time, address, userAgent s
 	return sess, cookie
 }
 
+// renewSession restarts the session a cookie names after its user has given their
+// password again, so it lasts a full lifetime from now. It returns nil if the cookie
+// names no session, or one belonging to someone else.
+func (s *storage) renewSession(cookie string, user *Identity, now time.Time) *session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[secretKey(cookie)]
+	if !ok || now.After(sess.expires) || sess.user.Username != user.Username {
+		return nil
+	}
+	sess.user, sess.authTime, sess.lastSeen = user, now, now
+	sess.expires = now.Add(s.p.settings.Load().sessionLifetime)
+	s.db.put(tableSessions, sess.key, sess.record(), sess.expires)
+	return sess
+}
+
 // session returns the session a cookie names.
 func (s *storage) session(cookie string, now time.Time) *session {
 	s.mu.Lock()

@@ -31,11 +31,22 @@ func (p *Provider) loginPage(w http.ResponseWriter, r *http.Request) {
 			p.message(w, http.StatusBadRequest, "Nothing to sign in to", "Go to the application you want to use, and sign in from there.")
 			return
 		}
-		if sess != nil {
+		if sess == nil {
+			p.showLogin(w, r, http.StatusOK, nil, nil, next, "", "")
+			return
+		}
+		if now.Sub(sess.authTime) <= adminSignInFresh {
 			http.Redirect(w, r, next, http.StatusFound)
 			return
 		}
-		p.showLogin(w, r, http.StatusOK, nil, nil, next, "", "")
+		// The admin pages need a recent password, not just a session.
+		p.render(w, http.StatusOK, "login", pageData{
+			Title:    "Sign in",
+			Message:  "Enter your password again to manage sign-ins.",
+			CSRF:     p.csrfToken(w, r),
+			Username: sess.user.Username,
+			Next:     next,
+		})
 		return
 	}
 	req, c, ok := p.loginRequest(w, r, q.Get("id"))
@@ -106,10 +117,21 @@ func (p *Provider) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	p.throttle.succeeded(username)
 	p.log.Info().Str("username", user.Username).Str("client", clientID).Msg("oidc: signed in")
 
-	sess, cookie := p.store.newSession(user, now, clientAddress(r), r.UserAgent())
+	// Signing in again as the same user renews the browser's session, keeping the
+	// applications' tokens; anyone else gets a session of their own.
+	var sess *session
+	cookie, err := r.Cookie(sessionCookie)
+	if err == nil {
+		sess = p.store.renewSession(cookie.Value, user, now)
+	}
+	if sess == nil {
+		var value string
+		sess, value = p.store.newSession(user, now, clientAddress(r), r.UserAgent())
+		cookie = &http.Cookie{Value: value}
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
-		Value:    cookie,
+		Value:    cookie.Value,
 		Path:     p.basePath + "/",
 		Expires:  sess.expires,
 		HttpOnly: true,

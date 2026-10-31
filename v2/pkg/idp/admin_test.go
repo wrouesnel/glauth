@@ -280,3 +280,45 @@ func TestAdminSettings(t *testing.T) {
 }
 
 func timeNow() time.Time { return time.Now() }
+
+func TestAdminWantsRecentPassword(t *testing.T) {
+	h := newHarness(t, adminConfig(t))
+	h.adminSignIn("alice")
+	tokens := h.signInTo(testApp, "alice")
+	for _, sess := range h.p.store.sessions {
+		sess.authTime = sess.authTime.Add(-adminSignInFresh - time.Minute)
+	}
+
+	again := "/login?next=%2Fadmin"
+	if resp, _ := h.get("/admin"); resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != again {
+		t.Fatalf("admin page with an old sign-in: %d to %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if resp, _ := h.adminPost("/admin/sessions/end-user", url.Values{"username": {"bob"}}); resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != again {
+		t.Fatalf("admin form with an old sign-in: %d to %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if resp, body := h.get(again); resp.StatusCode != http.StatusOK || !strings.Contains(body, `value="alice"`) || !strings.Contains(body, "password again") {
+		t.Fatalf("asking for the password again: %d %s", resp.StatusCode, body)
+	}
+	if resp := h.submitLogin(again, "alice", "wrong"); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong password: got %d", resp.StatusCode)
+	}
+	if resp := h.submitLogin(again, "alice", "correct horse"); resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/admin" {
+		t.Fatalf("giving the password again: %d to %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if resp, _ := h.get("/admin"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin page after giving the password again: %d", resp.StatusCode)
+	}
+	// The same session was renewed, so the application's tokens still work.
+	if n := len(h.p.store.listSessions(timeNow())); n != 1 {
+		t.Fatalf("got %d sessions, want 1", n)
+	}
+	if status := h.userinfoStatus(tokens.AccessToken); status != http.StatusOK {
+		t.Fatalf("app's token after renewing the session: %d", status)
+	}
+
+	// Signing in as someone else on the same browser starts a new session.
+	h.adminPost("/login", url.Values{"next": {"/admin"}, "username": {"bob"}, "password": {"correct horse"}})
+	if n := len(h.p.store.listSessions(timeNow())); n != 2 {
+		t.Fatalf("got %d sessions after another user signed in, want 2", n)
+	}
+}
