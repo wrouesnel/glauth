@@ -61,6 +61,7 @@ func newHarness(t *testing.T, cfg config.OIDC) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(p.Close)
 	srv := httptest.NewTLSServer(p)
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)

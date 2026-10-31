@@ -76,11 +76,12 @@ With `adminGroups = ["admins"]` in `[oidc]`, members of those groups can manage 
 - add applications: limit one to some groups, give it a secret (shown once, then stored hashed), or allow callback URLs outside its own host.
 - change the name on the sign-in page, the session lifetime and the extra trusted domains.
 
+Sessions and tokens are kept in `<stateDir>/oidc-state.db`, so a restart doesn't sign anyone out. Session cookies and refresh tokens are only stored hashed. Without a `stateDir`, everything is kept in memory and lost on restart.
+
 Changes are saved to `adminFile` (default `<stateDir>/oidc-admin.toml`), which is applied over the `[oidc]` section of the main config. The main config is never rewritten, so it can stay hand-written or managed by tools like Ansible. Hand edits to the admin file are picked up within a minute. Applications set up in the main config are shown, but can only be changed there.
 
-Limitations for now:
+Limitation for now:
 
-- Sessions and refresh tokens are kept in memory, so a restart signs everyone out.
 - Five wrong passwords for a user name within five minutes block that name for the rest of the five minutes. glauth's own `limitFailedBinds` counts failures by address, and every sign-in comes from the provider's address, so with OIDC in use, leave it off.
 
 ### Contributing

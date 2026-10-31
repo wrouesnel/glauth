@@ -102,12 +102,22 @@ func New(cfg config.OIDC, auth Authenticator, log zerolog.Logger) (*Provider, er
 		return nil, fmt.Errorf("oidc: loading keys: %w", err)
 	}
 	if cfg.StateDir == "" {
-		log.Warn().Msg("oidc: no stateDir, so signing keys change on every restart and applications will reject older tokens")
+		log.Warn().Msg("oidc: no stateDir, so signing keys change and everyone is signed out on every restart")
 	}
 	if p.ui, err = newUI(cfg.Branding); err != nil {
 		return nil, fmt.Errorf("oidc: %w", err)
 	}
-	p.store = newStorage(p)
+	var db *stateDB
+	if cfg.StateDir != "" {
+		if db, err = openStateDB(filepath.Join(cfg.StateDir, stateDBFile), log); err != nil {
+			return nil, fmt.Errorf("oidc: %w", err)
+		}
+	}
+	p.store = newStorage(p, db)
+	if err := p.store.restore(time.Now()); err != nil {
+		db.close()
+		return nil, fmt.Errorf("oidc: restoring sessions: %w", err)
+	}
 
 	opts := []op.Option{op.WithLogger(slog.New(zerologHandler{log}))}
 	if issuerURL.Scheme == "http" {
@@ -166,6 +176,7 @@ func (p *Provider) Run(ctx context.Context) error {
 				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				_ = srv.Shutdown(shutdown)
+				p.Close()
 				return
 			case now := <-ticker.C:
 				p.store.expire(now)
@@ -185,6 +196,11 @@ func (p *Provider) Run(ctx context.Context) error {
 		return nil
 	}
 	return err
+}
+
+// Close releases the provider's state file.
+func (p *Provider) Close() {
+	p.store.db.close()
 }
 
 // DerivedSecret is the secret an application must present when clientSecrets is "derived".

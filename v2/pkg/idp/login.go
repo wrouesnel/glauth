@@ -106,10 +106,10 @@ func (p *Provider) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	p.throttle.succeeded(username)
 	p.log.Info().Str("username", user.Username).Str("client", clientID).Msg("oidc: signed in")
 
-	sess := p.store.newSession(user, now, clientAddress(r), r.UserAgent())
+	sess, cookie := p.store.newSession(user, now, clientAddress(r), r.UserAgent())
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
-		Value:    sess.id,
+		Value:    cookie,
 		Path:     p.basePath + "/",
 		Expires:  sess.expires,
 		HttpOnly: true,
