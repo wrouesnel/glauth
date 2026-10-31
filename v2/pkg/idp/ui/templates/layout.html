@@ -9,7 +9,7 @@
 {{if .CustomCSS}}<link rel="stylesheet" href="{{.Base}}/static/custom.css">{{end}}
 </head>
 <body>
-<main class="card">
+<main class="card{{if .Admin}} wide{{end}}">
 <header>
 {{if .Logo}}<img class="logo" src="{{.Base}}/static/logo" alt="">{{end}}
 <p class="brand">{{.Brand}}</p>

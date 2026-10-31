@@ -1,0 +1,89 @@
+{{define "content"}}
+{{with .Admin}}
+<h1>Administration</h1>
+<p class="app">Signed in as <strong>{{.User}}</strong> · <a href="{{$.Base}}/logout">Sign out</a></p>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+
+<section>
+<h2>Sessions</h2>
+{{if .Sessions}}
+<div class="table">
+<table>
+<thead><tr><th>User</th><th>Signed in</th><th>Last used</th><th>Expires</th><th>Applications</th><th>From</th><th></th></tr></thead>
+<tbody>
+{{range .Sessions}}
+<tr>
+<td><strong>{{.User.Username}}</strong>{{if .User.Groups}}<br><small>{{join .User.Groups ", "}}</small>{{end}}</td>
+<td>{{when .AuthTime}}</td>
+<td>{{when .LastSeen}}</td>
+<td>{{when .Expires}}</td>
+<td>{{join .Clients ", "}}</td>
+<td>{{.Address}}<br><small title="{{.UserAgent}}">{{printf "%.40s" .UserAgent}}</small></td>
+<td class="actions">
+<form method="post" action="{{$.Base}}/admin/sessions/end"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="session" value="{{.Handle}}"><button class="small danger">End</button></form>
+<form method="post" action="{{$.Base}}/admin/sessions/end-user"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="username" value="{{.User.Username}}"><button class="small secondary">End all for {{.User.Username}}</button></form>
+</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}
+<p class="muted">Nobody is signed in.</p>
+{{end}}
+</section>
+
+<section>
+<h2>Applications</h2>
+<p class="muted">Applications under a trusted domain sign in without being added. Add one here to limit it to some groups, require a secret, or allow callbacks outside its own host.</p>
+{{if .Apps}}
+<div class="table">
+<table>
+<thead><tr><th>Application</th><th>Set up in</th><th>Groups</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+<tbody>
+{{range .Apps}}
+<tr>
+<td><strong>{{.ID}}</strong>{{if and .Name (ne .Name .ID)}}<br><small>{{.Name}}</small>{{end}}</td>
+<td>{{.Source}}</td>
+<td>{{if .Groups}}{{join .Groups ", "}}{{else}}<span class="muted">anyone</span>{{end}}</td>
+<td>{{when .LastSignIn}}</td>
+<td>{{with .Block}}<span class="badge">Blocked{{if not .Until.IsZero}} until {{when .Until}}{{end}}</span>{{if .Reason}}<br><small>{{.Reason}}</small>{{end}}<br><small>by {{.By}}</small>{{else}}Active{{end}}</td>
+<td class="actions">
+{{if .Block}}
+<form method="post" action="{{$.Base}}/admin/apps/unblock"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="client" value="{{.ID}}"><button class="small">Unblock</button></form>
+{{else}}
+<form method="post" action="{{$.Base}}/admin/apps/block" class="block-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="client" value="{{.ID}}">
+<select name="for" aria-label="Block for"><option value="1h">1 hour</option><option value="1d">1 day</option><option value="1w">1 week</option><option value="">Until unblocked</option></select>
+<input name="reason" placeholder="Reason (optional)" aria-label="Reason">
+<button class="small danger">Block</button></form>
+{{end}}
+{{if .Editable}}<a class="button small secondary" href="{{$.Base}}/admin/apps/edit?id={{.ID}}">{{if eq .Source "Admin page"}}Edit{{else}}Set up{{end}}</a>{{end}}
+</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}
+<p class="muted">No application has signed anyone in since the provider started.</p>
+{{end}}
+<p><a class="button secondary" href="{{$.Base}}/admin/apps/edit">Add an application</a></p>
+</section>
+
+<section>
+<h2>Settings</h2>
+<form method="post" action="{{$.Base}}/admin/settings">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label for="brandName">Name shown on the sign-in page</label>
+<input id="brandName" name="brandName" value="{{.Settings.BrandName}}" placeholder="From the config file">
+<label for="sessionLifetime">Session lifetime</label>
+<input id="sessionLifetime" name="sessionLifetime" value="{{.Settings.SessionLifetime}}" placeholder="From the config file, e.g. 12h">
+<label for="trustedDomains">More trusted domains, one per line</label>
+<textarea id="trustedDomains" name="trustedDomains" rows="3">{{.Settings.TrustedDomains}}</textarea>
+{{if .Settings.ConfigDomains}}<small class="muted">Trusted by the config file: {{join .Settings.ConfigDomains ", "}}</small>{{end}}
+<button type="submit">Save settings</button>
+</form>
+</section>
+{{end}}
+{{end}}

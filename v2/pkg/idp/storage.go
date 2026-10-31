@@ -36,6 +36,7 @@ type storage struct {
 	accessTokens  map[string]*accessToken
 	refreshTokens map[string]*refreshToken
 	sessions      map[string]*session
+	apps          map[string]time.Time // client ID -> last sign-in, for the admin page
 }
 
 func newStorage(p *Provider) *storage {
@@ -46,6 +47,7 @@ func newStorage(p *Provider) *storage {
 		accessTokens:  map[string]*accessToken{},
 		refreshTokens: map[string]*refreshToken{},
 		sessions:      map[string]*session{},
+		apps:          map[string]time.Time{},
 	}
 }
 
@@ -108,8 +110,9 @@ type authRequest struct {
 	prompt        []string
 	maxAge        *time.Duration
 
-	user     *Identity // set once the user has signed in
-	authTime time.Time
+	user      *Identity // set once the user has signed in
+	authTime  time.Time
+	sessionID string
 }
 
 func (r *authRequest) GetID() string                         { return r.id }
@@ -135,24 +138,26 @@ func (r *authRequest) GetSubject() string {
 }
 
 type accessToken struct {
-	id       string
-	clientID string
-	user     *Identity
-	audience []string
-	scopes   []string
-	expires  time.Time
+	id        string
+	sessionID string
+	clientID  string
+	user      *Identity
+	audience  []string
+	scopes    []string
+	expires   time.Time
 }
 
 type refreshToken struct {
-	token    string
-	clientID string
-	user     *Identity
-	audience []string
-	scopes   []string
-	amr      []string
-	authTime time.Time
-	expires  time.Time
-	accessID string
+	token     string
+	sessionID string
+	clientID  string
+	user      *Identity
+	audience  []string
+	scopes    []string
+	amr       []string
+	authTime  time.Time
+	expires   time.Time
+	accessID  string
 }
 
 func (t *refreshToken) GetAMR() []string                 { return t.amr }
@@ -165,16 +170,37 @@ func (t *refreshToken) SetCurrentScopes(scopes []string) { t.scopes = scopes }
 func (t *refreshToken) identity() *Identity              { return t.user }
 
 // session is a signed-in browser, remembered by a cookie so that each application
-// doesn't ask for the password again.
+// doesn't ask for the password again. Tokens issued through a session end with it.
 type session struct {
-	id       string
-	user     *Identity
-	authTime time.Time
-	expires  time.Time
+	id        string // the cookie's value
+	handle    string // names the session on the admin page, which never shows its id
+	user      *Identity
+	authTime  time.Time
+	expires   time.Time
+	lastSeen  time.Time
+	address   string
+	userAgent string
+	clients   map[string]time.Time // applications signed in to, and when
 }
 
-func (s *storage) newSession(user *Identity, now time.Time) *session {
-	sess := &session{id: randomID(), user: user, authTime: now, expires: now.Add(s.p.sessionLifetime)}
+// sessionInfo is a copy of a session for the admin page.
+type sessionInfo struct {
+	Handle    string
+	User      Identity
+	AuthTime  time.Time
+	Expires   time.Time
+	LastSeen  time.Time
+	Address   string
+	UserAgent string
+	Clients   []string
+}
+
+func (s *storage) newSession(user *Identity, now time.Time, address, userAgent string) *session {
+	sess := &session{
+		id: randomID(), handle: randomID()[:16], user: user, authTime: now, lastSeen: now,
+		expires: now.Add(s.p.settings.Load().sessionLifetime),
+		address: address, userAgent: userAgent, clients: map[string]time.Time{},
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions[sess.id] = sess
@@ -191,21 +217,93 @@ func (s *storage) session(id string, now time.Time) *session {
 	return sess
 }
 
-func (s *storage) endSession(id string) {
+// endSessions ends the sessions match selects, and the tokens issued through them.
+func (s *storage) endSessions(match func(*session) bool) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.sessions, id)
+	ended := map[string]bool{}
+	for id, sess := range s.sessions {
+		if match(sess) {
+			ended[id] = true
+			delete(s.sessions, id)
+		}
+	}
+	s.dropTokens(func(sessionID, _ string) bool { return ended[sessionID] })
+	return len(ended)
 }
 
-// completeAuthRequest records who signed in for an auth request.
-func (s *storage) completeAuthRequest(id string, user *Identity, authTime time.Time) error {
+func (s *storage) endSession(id string) {
+	s.endSessions(func(sess *session) bool { return sess.id == id })
+}
+
+// dropTokens deletes the tokens match selects by session ID and client ID.
+func (s *storage) dropTokens(match func(sessionID, clientID string) bool) {
+	for id, t := range s.accessTokens {
+		if match(t.sessionID, t.clientID) {
+			delete(s.accessTokens, id)
+		}
+	}
+	for id, t := range s.refreshTokens {
+		if match(t.sessionID, t.clientID) {
+			delete(s.refreshTokens, id)
+		}
+	}
+}
+
+// revokeClient deletes every token issued to an application.
+func (s *storage) revokeClient(clientID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dropTokens(func(_, c string) bool { return c == clientID })
+}
+
+func (s *storage) listSessions(now time.Time) []sessionInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var list []sessionInfo
+	for _, sess := range s.sessions {
+		if now.After(sess.expires) {
+			continue
+		}
+		info := sessionInfo{Handle: sess.handle, User: *sess.user, AuthTime: sess.authTime,
+			Expires: sess.expires, LastSeen: sess.lastSeen, Address: sess.address, UserAgent: sess.userAgent}
+		for c := range sess.clients {
+			info.Clients = append(info.Clients, c)
+		}
+		slices.Sort(info.Clients)
+		list = append(list, info)
+	}
+	slices.SortFunc(list, func(a, b sessionInfo) int { return b.LastSeen.Compare(a.LastSeen) })
+	return list
+}
+
+// recentApps returns when each application last signed someone in.
+func (s *storage) recentApps() map[string]time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	apps := make(map[string]time.Time, len(s.apps))
+	for id, at := range s.apps {
+		apps[id] = at
+	}
+	return apps
+}
+
+// completeAuthRequest records who signed in for an auth request, through which session.
+func (s *storage) completeAuthRequest(id string, sess *session, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.authRequests[id]
 	if !ok {
 		return errNotFound
 	}
-	r.user, r.authTime = user, authTime
+	live, ok := s.sessions[sess.id]
+	if !ok {
+		return errNotFound
+	}
+	r.user, r.authTime, r.sessionID = live.user, live.authTime, live.id
+	live.lastSeen = now
+	live.clients[r.clientID] = now
+	s.apps[r.clientID] = now
 	return nil
 }
 
@@ -283,14 +381,15 @@ func (s *storage) DeleteAuthRequest(_ context.Context, id string) error {
 	return nil
 }
 
-func (s *storage) newAccessToken(clientID string, user *Identity, audience, scopes []string) *accessToken {
+func (s *storage) newAccessToken(sessionID, clientID string, user *Identity, audience, scopes []string) *accessToken {
 	t := &accessToken{
-		id:       randomID(),
-		clientID: clientID,
-		user:     user,
-		audience: audience,
-		scopes:   scopes,
-		expires:  time.Now().Add(accessTokenLifetime),
+		id:        randomID(),
+		sessionID: sessionID,
+		clientID:  clientID,
+		user:      user,
+		audience:  audience,
+		scopes:    scopes,
+		expires:   time.Now().Add(accessTokenLifetime),
 	}
 	s.accessTokens[t.id] = t
 	return t
@@ -308,13 +407,19 @@ func (s *storage) CreateAccessToken(_ context.Context, req op.TokenRequest) (str
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	clientID := ""
-	if r, ok := req.(*authRequest); ok {
-		clientID = r.clientID
+	r, ok := req.(*authRequest)
+	if !ok {
+		return "", time.Time{}, errNoGrant
+	}
+	if err := s.p.checkBlocked(r.clientID); err != nil {
+		return "", time.Time{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t := s.newAccessToken(clientID, user, req.GetAudience(), req.GetScopes())
+	if _, ok := s.sessions[r.sessionID]; !ok {
+		return "", time.Time{}, errNotFound
+	}
+	t := s.newAccessToken(r.sessionID, r.clientID, user, req.GetAudience(), req.GetScopes())
 	return t.id, t.expires, nil
 }
 
@@ -325,20 +430,29 @@ func (s *storage) CreateAccessAndRefreshTokens(_ context.Context, req op.TokenRe
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
+	if c, ok := req.(interface{ GetClientID() string }); !ok {
+		return "", "", time.Time{}, errNoGrant
+	} else if err := s.p.checkBlocked(c.GetClientID()); err != nil {
+		return "", "", time.Time{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var rt *refreshToken
 	switch r := req.(type) {
 	case *authRequest:
+		if _, ok := s.sessions[r.sessionID]; !ok {
+			return "", "", time.Time{}, errNotFound
+		}
 		rt = &refreshToken{
-			clientID: r.clientID,
-			user:     user,
-			audience: r.GetAudience(),
-			scopes:   r.scopes,
-			amr:      r.GetAMR(),
-			authTime: r.authTime,
-			expires:  r.authTime.Add(s.p.sessionLifetime),
+			sessionID: r.sessionID,
+			clientID:  r.clientID,
+			user:      user,
+			audience:  r.GetAudience(),
+			scopes:    r.scopes,
+			amr:       r.GetAMR(),
+			authTime:  r.authTime,
+			expires:   r.authTime.Add(s.p.settings.Load().sessionLifetime),
 		}
 	case *refreshToken:
 		old, ok := s.refreshTokens[current]
@@ -351,7 +465,7 @@ func (s *storage) CreateAccessAndRefreshTokens(_ context.Context, req op.TokenRe
 	default:
 		return "", "", time.Time{}, errNoGrant
 	}
-	at := s.newAccessToken(rt.clientID, user, rt.audience, rt.scopes)
+	at := s.newAccessToken(rt.sessionID, rt.clientID, user, rt.audience, rt.scopes)
 	rt.token = randomID()
 	rt.accessID = at.id
 	s.refreshTokens[rt.token] = rt
@@ -480,10 +594,13 @@ func (s *storage) SetIntrospectionFromToken(_ context.Context, resp *oidc.Intros
 
 func (s *storage) accessToken(id string) (*accessToken, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	t, ok := s.accessTokens[id]
+	s.mu.Unlock()
 	if !ok || time.Now().After(t.expires) {
 		return nil, errNotFound
+	}
+	if err := s.p.checkBlocked(t.clientID); err != nil {
+		return nil, err
 	}
 	return t, nil
 }

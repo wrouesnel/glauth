@@ -3,7 +3,8 @@
 {{if .App}}<p class="app">to continue to <strong>{{.App}}</strong></p>{{end}}
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 <form method="post" action="{{.Base}}/login">
-<input type="hidden" name="id" value="{{.RequestID}}">
+{{if .RequestID}}<input type="hidden" name="id" value="{{.RequestID}}">{{end}}
+{{if .Next}}<input type="hidden" name="next" value="{{.Next}}">{{end}}
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <label for="username">User name</label>
 <input id="username" name="username" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required {{if not .Username}}autofocus{{end}}>

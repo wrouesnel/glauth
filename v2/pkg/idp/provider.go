@@ -10,7 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -25,19 +28,21 @@ const defaultSessionLifetime = 12 * time.Hour
 
 // Provider is an OpenID Connect provider, served as an http.Handler.
 type Provider struct {
-	cfg             config.OIDC
-	log             zerolog.Logger
-	auth            Authenticator
-	keys            *keys
-	store           *storage
-	op              *op.Provider
-	issuer          *url.URL
-	basePath        string
-	trustedDomains  []string
-	sessionLifetime time.Duration
-	ui              *ui
-	throttle        *throttle
-	handler         http.Handler
+	cfg        config.OIDC
+	log        zerolog.Logger
+	auth       Authenticator
+	keys       *keys
+	store      *storage
+	op         *op.Provider
+	issuer     *url.URL
+	basePath   string
+	settings   atomic.Pointer[settings]
+	adminPath  string
+	adminMu    sync.Mutex
+	adminMtime time.Time
+	ui         *ui
+	throttle   *throttle
+	handler    http.Handler
 }
 
 // Issuer returns the issuer URL for cfg: Issuer if set, otherwise https://auth.<Domain>.
@@ -69,37 +74,37 @@ func New(cfg config.OIDC, auth Authenticator, log zerolog.Logger) (*Provider, er
 		return nil, fmt.Errorf("oidc: clientSecrets must be %q or %q", secretsIgnore, secretsDerived)
 	}
 	p := &Provider{
-		cfg:             cfg,
-		log:             log,
-		auth:            auth,
-		issuer:          issuerURL,
-		basePath:        strings.TrimSuffix(issuerURL.Path, "/"),
-		sessionLifetime: cfg.SessionLifetime,
-		throttle:        newThrottle(),
+		cfg:      cfg,
+		log:      log,
+		auth:     auth,
+		issuer:   issuerURL,
+		basePath: strings.TrimSuffix(issuerURL.Path, "/"),
+		throttle: newThrottle(),
 	}
-	if p.sessionLifetime <= 0 {
-		p.sessionLifetime = defaultSessionLifetime
+	p.adminPath = cfg.AdminFile
+	if p.adminPath == "" && cfg.StateDir != "" {
+		p.adminPath = filepath.Join(cfg.StateDir, adminFileName)
 	}
-	for _, d := range append([]string{cfg.Domain}, cfg.TrustedDomains...) {
-		if d = strings.ToLower(strings.Trim(d, ".")); d != "" {
-			p.trustedDomains = append(p.trustedDomains, d)
-		}
+	if len(cfg.AdminGroups) > 0 && p.adminPath == "" {
+		return nil, errors.New("oidc: adminGroups needs stateDir or adminFile, to save what admins change")
 	}
-	for _, c := range cfg.Clients {
-		if c.ID == "" {
-			return nil, errors.New("oidc: a client has no id")
-		}
-		if len(c.RedirectURIs) == 0 && !p.trustedHost(strings.ToLower(c.ID)) {
-			return nil, fmt.Errorf("oidc: client %q needs redirectURIs, since its id isn't a host under a trusted domain", c.ID)
-		}
+	admin, mtime, err := loadAdminSettings(p.adminPath)
+	if err != nil {
+		return nil, fmt.Errorf("oidc: %w", err)
 	}
+	s, err := p.buildSettings(admin)
+	if err != nil {
+		return nil, fmt.Errorf("oidc: %w", err)
+	}
+	p.settings.Store(s)
+	p.adminMtime = mtime
 	if p.keys, err = loadKeys(cfg.StateDir); err != nil {
 		return nil, fmt.Errorf("oidc: loading keys: %w", err)
 	}
 	if cfg.StateDir == "" {
 		log.Warn().Msg("oidc: no stateDir, so signing keys change on every restart and applications will reject older tokens")
 	}
-	if p.ui, err = newUI(cfg.Branding, p.displayName()); err != nil {
+	if p.ui, err = newUI(cfg.Branding); err != nil {
 		return nil, fmt.Errorf("oidc: %w", err)
 	}
 	p.store = newStorage(p)
@@ -129,6 +134,7 @@ func New(cfg config.OIDC, auth Authenticator, log zerolog.Logger) (*Provider, er
 	mux.HandleFunc("POST /login", p.loginSubmit)
 	mux.HandleFunc("GET /logout", p.logout)
 	mux.HandleFunc("GET /logged-out", p.loggedOut)
+	p.adminRoutes(mux)
 	mux.Handle("GET /static/", p.ui.static())
 	mux.Handle("/end_session", p.endSession(p.op))
 	mux.Handle("/", p.op)
@@ -164,10 +170,11 @@ func (p *Provider) Run(ctx context.Context) error {
 			case now := <-ticker.C:
 				p.store.expire(now)
 				p.throttle.expire(now)
+				p.reloadAdmin()
 			}
 		}
 	}()
-	p.log.Info().Str("listen", listen).Str("issuer", p.issuer.String()).Strs("trustedDomains", p.trustedDomains).Msg("OIDC provider starting")
+	p.log.Info().Str("listen", listen).Str("issuer", p.issuer.String()).Strs("trustedDomains", p.settings.Load().trustedDomains).Msg("OIDC provider starting")
 	var err error
 	if p.cfg.TLSCertPath != "" {
 		err = srv.ListenAndServeTLS(p.cfg.TLSCertPath, p.cfg.TLSKeyPath)
@@ -190,10 +197,6 @@ func DerivedSecret(cfg config.OIDC, clientID string) (string, error) {
 		return "", err
 	}
 	return k.derivedSecret(clientID), nil
-}
-
-func (p *Provider) displayName() string {
-	return firstOf(p.cfg.Branding.Name, p.cfg.Domain, p.issuer.Host)
 }
 
 func (p *Provider) loginURL(id string) string {

@@ -3,8 +3,10 @@ package idp
 import (
 	"crypto/subtle"
 	"errors"
+	"net"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -17,14 +19,30 @@ const (
 )
 
 // loginPage signs the user in to an application: straight away if they already have
-// a session, otherwise by asking for their password.
+// a session, otherwise by asking for their password. Without an auth request, it
+// signs the user in to one of the provider's own pages, named by next.
 func (p *Provider) loginPage(w http.ResponseWriter, r *http.Request) {
-	req, c, ok := p.loginRequest(w, r, r.URL.Query().Get("id"))
+	q := r.URL.Query()
+	now := time.Now()
+	sess := p.currentSession(r, now)
+	if q.Get("id") == "" {
+		next, ok := p.localNext(q.Get("next"))
+		if !ok {
+			p.message(w, http.StatusBadRequest, "Nothing to sign in to", "Go to the application you want to use, and sign in from there.")
+			return
+		}
+		if sess != nil {
+			http.Redirect(w, r, next, http.StatusFound)
+			return
+		}
+		p.showLogin(w, r, http.StatusOK, nil, nil, next, "", "")
+		return
+	}
+	req, c, ok := p.loginRequest(w, r, q.Get("id"))
 	if !ok {
 		return
 	}
-	now := time.Now()
-	if sess := p.currentSession(r, now); sess != nil && !slices.Contains(req.prompt, oidc.PromptLogin) &&
+	if sess != nil && !slices.Contains(req.prompt, oidc.PromptLogin) &&
 		(req.maxAge == nil || now.Sub(sess.authTime) <= *req.maxAge) {
 		p.finish(w, r, req, c, sess)
 		return
@@ -33,48 +51,62 @@ func (p *Provider) loginPage(w http.ResponseWriter, r *http.Request) {
 		op.AuthRequestError(w, r, req, oidc.ErrLoginRequired(), p.op)
 		return
 	}
-	p.showLogin(w, r, http.StatusOK, req, c, "", "")
+	p.showLogin(w, r, http.StatusOK, req, c, "", "", "")
 }
 
 func (p *Provider) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+	if !p.parseForm(w, r) {
 		return
 	}
-	req, c, ok := p.loginRequest(w, r, r.PostForm.Get("id"))
-	if !ok {
-		return
+	var (
+		req  *authRequest
+		c    *client
+		next string
+	)
+	if id := r.PostForm.Get("id"); id != "" {
+		var ok bool
+		if req, c, ok = p.loginRequest(w, r, id); !ok {
+			return
+		}
+	} else {
+		var ok bool
+		if next, ok = p.localNext(r.PostForm.Get("next")); !ok {
+			p.message(w, http.StatusBadRequest, "Nothing to sign in to", "Go to the application you want to use, and sign in from there.")
+			return
+		}
 	}
-	cookie, err := r.Cookie(csrfCookie)
-	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.PostForm.Get("csrf"))) != 1 {
-		p.showLogin(w, r, http.StatusForbidden, req, c, "", "Your sign-in form expired. Please try again.")
+	if !p.checkCSRF(r) {
+		p.showLogin(w, r, http.StatusForbidden, req, c, next, "", "Your sign-in form expired. Please try again.")
 		return
 	}
 
 	username, password := r.PostForm.Get("username"), r.PostForm.Get("password")
+	clientID := ""
+	if c != nil {
+		clientID = c.id
+	}
 	now := time.Now()
 	if !p.throttle.allowed(username, now) {
-		p.log.Warn().Str("username", username).Str("client", c.id).Msg("oidc: sign-in refused: too many failed attempts")
-		p.showLogin(w, r, http.StatusTooManyRequests, req, c, username, "Too many failed attempts. Wait a few minutes and try again.")
+		p.log.Warn().Str("username", username).Str("client", clientID).Msg("oidc: sign-in refused: too many failed attempts")
+		p.showLogin(w, r, http.StatusTooManyRequests, req, c, next, username, "Too many failed attempts. Wait a few minutes and try again.")
 		return
 	}
 	user, err := p.auth.Authenticate(r.Context(), username, password)
 	if errors.Is(err, ErrInvalidCredentials) {
 		p.throttle.failed(username, now)
-		p.log.Info().Str("username", username).Str("client", c.id).Msg("oidc: sign-in failed")
-		p.showLogin(w, r, http.StatusUnauthorized, req, c, username, "Wrong user name or password.")
+		p.log.Info().Str("username", username).Str("client", clientID).Msg("oidc: sign-in failed")
+		p.showLogin(w, r, http.StatusUnauthorized, req, c, next, username, "Wrong user name or password.")
 		return
 	}
 	if err != nil {
 		p.log.Error().Err(err).Str("username", username).Msg("oidc: could not check password")
-		p.showLogin(w, r, http.StatusServiceUnavailable, req, c, username, "Signing in isn't working right now. Please try again later.")
+		p.showLogin(w, r, http.StatusServiceUnavailable, req, c, next, username, "Signing in isn't working right now. Please try again later.")
 		return
 	}
 	p.throttle.succeeded(username)
-	p.log.Info().Str("username", user.Username).Str("client", c.id).Msg("oidc: signed in")
+	p.log.Info().Str("username", user.Username).Str("client", clientID).Msg("oidc: signed in")
 
-	sess := p.store.newSession(user, now)
+	sess := p.store.newSession(user, now, clientAddress(r), r.UserAgent())
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    sess.id,
@@ -84,7 +116,20 @@ func (p *Provider) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		Secure:   p.secureCookies(),
 		SameSite: http.SameSiteLaxMode,
 	})
+	if req == nil {
+		http.Redirect(w, r, next, http.StatusFound)
+		return
+	}
 	p.finish(w, r, req, c, sess)
+}
+
+// localNext accepts a page of the provider's own to return to after signing in.
+func (p *Provider) localNext(next string) (string, bool) {
+	admin := p.basePath + "/admin"
+	if next == admin || strings.HasPrefix(next, admin+"/") || strings.HasPrefix(next, admin+"?") {
+		return next, true
+	}
+	return "", false
 }
 
 // loginRequest finds the auth request a sign-in page is for, or shows an error.
@@ -99,6 +144,17 @@ func (p *Provider) loginRequest(w http.ResponseWriter, r *http.Request, id strin
 		p.message(w, http.StatusBadRequest, "Unknown application", "This application can't sign in here.")
 		return nil, nil, false
 	}
+	if b, blocked := p.settings.Load().blocked(c.id, time.Now()); blocked {
+		msg := c.name + " has been turned off by an administrator"
+		if !b.Until.IsZero() {
+			msg += " until " + b.Until.Local().Format("Mon 2 Jan 15:04 MST")
+		}
+		if b.Reason != "" {
+			msg += ": " + b.Reason
+		}
+		p.message(w, http.StatusForbidden, "Application turned off", msg+".")
+		return nil, nil, false
+	}
 	return req, c, true
 }
 
@@ -108,10 +164,10 @@ func (p *Provider) finish(w http.ResponseWriter, r *http.Request, req *authReque
 	if !c.allows(sess.user.Groups) {
 		// Offer the form, so someone else can sign in on this browser.
 		p.log.Info().Str("username", sess.user.Username).Str("client", c.id).Msg("oidc: sign-in refused: not in an allowed group")
-		p.showLogin(w, r, http.StatusForbidden, req, c, "", sess.user.Username+" isn't allowed to use "+c.name+". Sign in with another account.")
+		p.showLogin(w, r, http.StatusForbidden, req, c, "", "", sess.user.Username+" isn't allowed to use "+c.name+". Sign in with another account.")
 		return
 	}
-	if err := p.store.completeAuthRequest(req.id, sess.user, sess.authTime); err != nil {
+	if err := p.store.completeAuthRequest(req.id, sess, time.Now()); err != nil {
 		p.message(w, http.StatusBadRequest, "Sign-in expired", "This sign-in link has expired. Go back to the application and start again.")
 		return
 	}
@@ -119,34 +175,59 @@ func (p *Provider) finish(w http.ResponseWriter, r *http.Request, req *authReque
 	http.Redirect(w, r, op.AuthCallbackURL(p.op)(ctx, req.id), http.StatusFound)
 }
 
-func (p *Provider) showLogin(w http.ResponseWriter, r *http.Request, status int, req *authRequest, c *client, username, message string) {
-	csrf := ""
-	if cookie, err := r.Cookie(csrfCookie); err == nil && len(cookie.Value) >= 32 {
-		csrf = cookie.Value
-	} else {
-		csrf = randomID()
-		http.SetCookie(w, &http.Cookie{
-			Name:     csrfCookie,
-			Value:    csrf,
-			Path:     p.basePath + "/login",
-			HttpOnly: true,
-			Secure:   p.secureCookies(),
-			SameSite: http.SameSiteStrictMode,
-		})
+func (p *Provider) showLogin(w http.ResponseWriter, r *http.Request, status int, req *authRequest, c *client, next, username, message string) {
+	data := pageData{
+		Title:    "Sign in",
+		Error:    message,
+		CSRF:     p.csrfToken(w, r),
+		Username: username,
+		Next:     next,
 	}
-	p.ui.render(w, status, "login", pageData{
-		Title:     "Sign in",
-		Base:      p.basePath,
-		App:       c.name,
-		Error:     message,
-		RequestID: req.id,
-		CSRF:      csrf,
-		Username:  username,
+	if req != nil {
+		data.RequestID, data.App = req.id, c.name
+	}
+	p.render(w, status, "login", data)
+}
+
+// csrfToken returns the browser's CSRF token, which every form must send back.
+func (p *Provider) csrfToken(w http.ResponseWriter, r *http.Request) string {
+	if cookie, err := r.Cookie(csrfCookie); err == nil && len(cookie.Value) >= 32 {
+		return cookie.Value
+	}
+	token := randomID()
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookie,
+		Value:    token,
+		Path:     p.basePath + "/",
+		HttpOnly: true,
+		Secure:   p.secureCookies(),
+		SameSite: http.SameSiteStrictMode,
 	})
+	return token
+}
+
+func (p *Provider) checkCSRF(r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookie)
+	return err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.PostForm.Get("csrf"))) == 1
+}
+
+func (p *Provider) parseForm(w http.ResponseWriter, r *http.Request) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func (p *Provider) render(w http.ResponseWriter, status int, page string, data pageData) {
+	data.Brand = p.settings.Load().brand
+	data.Base = p.basePath
+	p.ui.render(w, status, page, data)
 }
 
 func (p *Provider) message(w http.ResponseWriter, status int, title, message string) {
-	p.ui.render(w, status, "message", pageData{Title: title, Base: p.basePath, Message: message})
+	p.render(w, status, "message", pageData{Title: title, Message: message})
 }
 
 func (p *Provider) currentSession(r *http.Request, now time.Time) *session {
@@ -188,4 +269,18 @@ func (p *Provider) endSession(next http.Handler) http.Handler {
 		p.clearSession(w, r)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// clientAddress is where a request came from, as the reverse proxy reports it. It is
+// only shown to admins, to help them recognise sessions, so it needn't be trusted.
+func clientAddress(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		first, _, _ := strings.Cut(xff, ",")
+		return strings.TrimSpace(first)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

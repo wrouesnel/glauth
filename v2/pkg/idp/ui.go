@@ -16,12 +16,11 @@ import (
 //go:embed ui
 var builtinUI embed.FS
 
-var pageNames = []string{"login", "message"}
+var pageNames = []string{"login", "message", "admin", "app"}
 
 // ui renders the sign-in pages, with any branding applied.
 type ui struct {
 	pages    map[string]*template.Template
-	brand    string
 	branding config.OIDCBranding
 }
 
@@ -39,10 +38,13 @@ type pageData struct {
 	RequestID string
 	CSRF      string
 	Username  string
+	Next      string
+
+	Admin any // the admin pages' data
 }
 
-func newUI(branding config.OIDCBranding, brand string) (*ui, error) {
-	u := &ui{pages: map[string]*template.Template{}, brand: brand, branding: branding}
+func newUI(branding config.OIDCBranding) (*ui, error) {
+	u := &ui{pages: map[string]*template.Template{}, branding: branding}
 	builtin, err := fs.Sub(builtinUI, "ui/templates")
 	if err != nil {
 		return nil, err
@@ -56,7 +58,7 @@ func newUI(branding config.OIDCBranding, brand string) (*ui, error) {
 		if err != nil {
 			return nil, err
 		}
-		t, err := template.New(name).Parse(layout)
+		t, err := template.New(name).Funcs(templateFuncs).Parse(layout)
 		if err == nil {
 			_, err = t.Parse(page)
 		}
@@ -93,7 +95,6 @@ func (u *ui) templateSource(builtin fs.FS, file string) (string, error) {
 }
 
 func (u *ui) render(w http.ResponseWriter, status int, page string, data pageData) {
-	data.Brand = u.brand
 	data.Logo = u.branding.Logo != ""
 	data.CustomCSS = u.branding.CSS != ""
 	var buf bytes.Buffer

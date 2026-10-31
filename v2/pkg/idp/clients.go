@@ -22,12 +22,13 @@ const (
 var errUnknownClient = errors.New("unknown client: register it, or use the host name of an application under a trusted domain as its client ID")
 
 // client is an application allowed to sign users in. Configured clients come from
-// [[oidc.clients]]; any other client ID is accepted when it is a host name under a
-// trusted domain, and then may only receive tokens at that host.
+// [[oidc.clients]] or the admin page; any other client ID is accepted when it is a
+// host name under a trusted domain, and then may only receive tokens at that host.
 type client struct {
 	id           string
 	name         string
 	secret       string
+	secretSHA256 string
 	redirectURIs []string
 	groups       []string
 	loginURL     func(string) string
@@ -36,24 +37,24 @@ type client struct {
 // lookupClient returns the configured client with this ID, or an implicit client
 // when the ID names a host under a trusted domain.
 func (p *Provider) lookupClient(id string) (*client, error) {
+	s := p.settings.Load()
 	host := strings.ToLower(id)
-	for _, c := range p.cfg.Clients {
-		if c.ID == id {
-			configured := &client{
-				id:           c.ID,
-				name:         firstOf(c.Name, host),
-				secret:       c.Secret,
-				redirectURIs: c.RedirectURIs,
-				groups:       c.Groups,
-				loginURL:     p.loginURL,
-			}
-			if len(configured.redirectURIs) == 0 {
-				configured.redirectURIs = hostRedirects(host)
-			}
-			return configured, nil
+	if c, ok := s.clients[id]; ok {
+		configured := &client{
+			id:           c.id,
+			name:         firstOf(c.name, host),
+			secret:       c.secret,
+			secretSHA256: c.secretSHA256,
+			redirectURIs: c.redirectURIs,
+			groups:       c.groups,
+			loginURL:     p.loginURL,
 		}
+		if len(configured.redirectURIs) == 0 {
+			configured.redirectURIs = hostRedirects(host)
+		}
+		return configured, nil
 	}
-	if !p.trustedHost(host) {
+	if !trustedHost(s.trustedDomains, host) {
 		return nil, errUnknownClient
 	}
 	return &client{id: id, name: host, redirectURIs: hostRedirects(host), loginURL: p.loginURL}, nil
@@ -65,17 +66,28 @@ func hostRedirects(host string) []string {
 	return []string{"https://" + host + "/**", "https://" + host + ":*/**"}
 }
 
-// trustedHost reports whether host is a valid DNS name under one of the trusted domains.
-func (p *Provider) trustedHost(host string) bool {
+// trustedHost reports whether host is a valid DNS name under one of the domains.
+func trustedHost(domains []string, host string) bool {
 	if !validHostname(host) {
 		return false
 	}
-	for _, domain := range p.trustedDomains {
+	for _, domain := range domains {
 		if host == domain || strings.HasSuffix(host, "."+domain) {
 			return true
 		}
 	}
 	return false
+}
+
+// errBlocked is returned for an application an admin has blocked.
+var errBlocked = errors.New("application is blocked")
+
+// checkBlocked fails if an admin has blocked the application.
+func (p *Provider) checkBlocked(clientID string) error {
+	if _, ok := p.settings.Load().blocked(clientID, time.Now()); ok {
+		return errBlocked
+	}
+	return nil
 }
 
 func validHostname(host string) bool {
@@ -97,9 +109,14 @@ func validHostname(host string) bool {
 
 // checkSecret authenticates a client at the token endpoint.
 func (p *Provider) checkSecret(c *client, secret string) error {
+	if err := p.checkBlocked(c.id); err != nil {
+		return err
+	}
 	switch {
 	case c.secret != "":
 		return compareSecret(c.secret, secret)
+	case c.secretSHA256 != "":
+		return compareSecret(c.secretSHA256, hashSecret(secret))
 	case p.cfg.ClientSecrets == secretsDerived:
 		return compareSecret(p.keys.derivedSecret(c.id), secret)
 	default:

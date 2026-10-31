@@ -1,0 +1,35 @@
+{{define "content"}}
+{{with .Admin}}
+<h1>{{$.Title}}</h1>
+<p class="app"><a href="{{$.Base}}/admin">Back to administration</a></p>
+{{if $.Error}}<p class="error" role="alert">{{$.Error}}</p>{{end}}
+<form method="post" action="{{$.Base}}/admin/apps/save">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="original" value="{{.Original}}">
+<label for="id">Client ID</label>
+<input id="id" name="id" value="{{.ID}}" required placeholder="grafana.example.com" autocapitalize="none" spellcheck="false">
+<small class="muted">The application's host name, if it is under a trusted domain.</small>
+<label for="name">Name shown on the sign-in page</label>
+<input id="name" name="name" value="{{.Name}}">
+<label for="groups">Groups allowed to sign in, separated by commas</label>
+<input id="groups" name="groups" value="{{.Groups}}" placeholder="Anyone">
+<label for="redirectURIs">Callback URLs, one per line</label>
+<textarea id="redirectURIs" name="redirectURIs" rows="3" placeholder="Anywhere on the application's own host">{{.RedirectURIs}}</textarea>
+<small class="muted">** matches any path, as in https://app.example.com/**</small>
+<fieldset>
+<legend>Client secret</legend>
+{{if .HasSecret}}<label class="inline"><input type="radio" name="secret" value="keep" checked> Keep the current secret</label>{{end}}
+<label class="inline"><input type="radio" name="secret" value="none" {{if not .HasSecret}}checked{{end}}> Accept any secret</label>
+<label class="inline"><input type="radio" name="secret" value="new"> Make a new secret</label>
+</fieldset>
+<button type="submit">Save</button>
+</form>
+{{if .Original}}
+<form method="post" action="{{$.Base}}/admin/apps/delete" class="separate">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="id" value="{{.Original}}">
+<button class="danger">Remove {{.Original}}</button>
+</form>
+{{end}}
+{{end}}
+{{end}}

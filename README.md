@@ -49,6 +49,7 @@ Signing in to one application signs the browser in to all of them for `sessionLi
   listen = "0.0.0.0:8080"          # plain HTTP, for a reverse proxy that terminates TLS
   stateDir = "/var/lib/glauth"     # keeps the signing keys across restarts
   # trustedDomains = ["lab.example.org"]
+  # adminGroups = ["admins"]       # may manage the provider at https://auth.example.com/admin
   # clientSecrets = "derived"      # apps must use the secret from: glauth -c <config> --oidc-secret <client-id>
   [oidc.branding]
     name = "Example"               # shown on the sign-in page
@@ -65,6 +66,17 @@ Signing in to one application signs the browser in to all of them for `sessionLi
 ```
 
 The provider binds to LDAP as the user who is signing in and reads their own entry, so it needs no service account. By default it uses the same process's LDAP listener. To run it separately, for example without access to `/etc/shadow`, give a second glauth a config with only an `[oidc]` section, `[ldaps] enabled = false`, and `ldap = "ldap://ldap-host:3893"` and `baseDN` set. See `v2/sample-oidc.cfg`.
+
+#### Administration
+
+With `adminGroups = ["admins"]` in `[oidc]`, members of those groups can manage the provider at `https://auth.<domain>/admin`. They can:
+
+- see who is signed in, from where, and to which applications, and end a session, or all of a user's sessions. This also revokes the tokens issued through them.
+- block an application for an hour, a day, a week or until unblocked, with a reason shown to users. Blocking also revokes its tokens.
+- add applications: limit one to some groups, give it a secret (shown once, then stored hashed), or allow callback URLs outside its own host.
+- change the name on the sign-in page, the session lifetime and the extra trusted domains.
+
+Changes are saved to `adminFile` (default `<stateDir>/oidc-admin.toml`), which is applied over the `[oidc]` section of the main config. The main config is never rewritten, so it can stay hand-written or managed by tools like Ansible. Hand edits to the admin file are picked up within a minute. Applications set up in the main config are shown, but can only be changed there.
 
 Limitations for now:
 

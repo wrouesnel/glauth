@@ -150,6 +150,11 @@ type (
 		SessionLifetime time.Duration // how long a sign-in lasts before the password is asked again (default 12h)
 		Clients         []OIDCClient
 		Branding        OIDCBranding
+		// AdminGroups may manage the provider at https://auth.<Domain>/admin: change
+		// settings, see and end sessions, and block applications.
+		AdminGroups []string
+		// AdminFile holds the settings changed on the admin page (default <StateDir>/oidc-admin.toml).
+		AdminFile string
 	}
 
 	// OIDCClient is an application with settings of its own: one outside the trusted

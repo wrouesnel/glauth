@@ -148,7 +148,8 @@ func (h *harness) submitLogin(loginPath, username, password string) *http.Respon
 	}
 	id, _ := url.Parse(loginPath)
 	resp, _ = h.post("/login", url.Values{
-		"id": {id.Query().Get("id")}, "csrf": {m[1]}, "username": {username}, "password": {password},
+		"id": {id.Query().Get("id")}, "next": {id.Query().Get("next")},
+		"csrf": {m[1]}, "username": {username}, "password": {password},
 	})
 	return resp
 }
