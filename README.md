@@ -25,6 +25,51 @@ This is a fork inspired by [glauth/glauth](https://github.com/glauth/glauth), de
 - Every backend is compiled into one binary, with no cgo: `config`, `ldap`, `owncloud`, `sqlite`, `mysql`, `postgres` and `unix`. `unix` serves the host's `passwd`, `shadow` and `group` and checks passwords against `shadow` itself. The `pam` backend needs cgo, so it's only built with `GO_BUILD_TAGS=pam`.
 - It is built with [mage](https://magefile.org): `go run mage.go binary` builds `./glauth`, and `go run mage.go -l` lists the other targets (`test`, `lint`, `style`, `releaseAll`, …). The container image is `ghcr.io/wrouesnel/glauth`.
 - Releases are tagged `wrouesnel-v<semver>`, and its versions carry a `+wrouesnel` marker, e.g. `v2.6.0+wrouesnel`.
+- It is also an OpenID Connect provider, so applications that don't speak LDAP can sign users in against the same accounts. See below.
+
+### OpenID Connect
+
+glauth can sign users in to applications with OpenID Connect, checking passwords against its own LDAP server. It is meant for a domain you control, served at `https://auth.<domain>`.
+
+Applications under the domain don't need registering. To connect one, give it:
+
+- **Issuer:** `https://auth.example.com`. The application finds every endpoint from there.
+- **Client ID:** the application's own host name, such as `grafana.example.com`. Tokens are only ever sent back to that host, over HTTPS, on any path or port.
+- **Client secret:** anything, unless `clientSecrets = "derived"` (see below).
+- **Scopes:** `openid profile email groups`. Add `offline_access` if the application wants refresh tokens.
+
+Tokens and userinfo carry `sub` and `preferred_username` (the user name), `name`, `given_name`, `family_name`, `email` (marked verified) and `groups`, which lists the user's group names. Most applications can map an admin role from `groups`.
+
+Signing in to one application signs the browser in to all of them for `sessionLifetime` (12 hours by default). `https://auth.<domain>/logout` signs it out.
+
+```toml
+[oidc]
+  enabled = true
+  domain = "example.com"           # issuer https://auth.example.com; apps on *.example.com are trusted
+  listen = "0.0.0.0:8080"          # plain HTTP, for a reverse proxy that terminates TLS
+  stateDir = "/var/lib/glauth"     # keeps the signing keys across restarts
+  # trustedDomains = ["lab.example.org"]
+  # clientSecrets = "derived"      # apps must use the secret from: glauth -c <config> --oidc-secret <client-id>
+  [oidc.branding]
+    name = "Example"               # shown on the sign-in page
+    # logo = "/config/logo.svg"
+    # css = "/config/auth.css"     # loaded after the built-in stylesheet
+    # templates = "/config/templates"  # replaces layout.html, login.html or message.html (see v2/pkg/idp/ui)
+
+# Applications outside the trusted domains, or with rules of their own:
+[[oidc.clients]]
+  id = "grafana.example.com"
+  groups = ["admins"]              # only these groups may sign in
+  # secret = "..."                 # require this secret
+  # redirectURIs = ["https://grafana.example.com/login/generic_oauth"]  # ** matches any path
+```
+
+The provider binds to LDAP as the user who is signing in and reads their own entry, so it needs no service account. By default it uses the same process's LDAP listener. To run it separately, for example without access to `/etc/shadow`, give a second glauth a config with only an `[oidc]` section, `[ldaps] enabled = false`, and `ldap = "ldap://ldap-host:3893"` and `baseDN` set. See `v2/sample-oidc.cfg`.
+
+Limitations for now:
+
+- Sessions and refresh tokens are kept in memory, so a restart signs everyone out.
+- Five wrong passwords for a user name within five minutes block that name for the rest of the five minutes. glauth's own `limitFailedBinds` counts failures by address, and every sign-in comes from the provider's address, so with OIDC in use, leave it off.
 
 ### Contributing
 - Please base all Pull Requests on [dev](https://github.com/glauth/glauth/tree/dev), not master.
@@ -72,6 +117,9 @@ Options:
   --ldaps <address>         Listen address for the LDAPS server.
   --ldaps-cert <cert-file>  Path to cert file for the LDAPS server.
   --ldaps-key <key-file>    Path to key file for the LDAPS server.
+  --check-config            Check configuration file and exit.
+  --oidc-secret <client-id> Print the secret an OIDC application must use when
+                            oidc.clientSecrets is "derived", and exit.
   -h, --help                Show this screen.
   --version                 Show version.
 ```

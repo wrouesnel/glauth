@@ -50,6 +50,8 @@ Options:
   --ldaps-cert <cert-file>  Path to cert file for the LDAPS server.
   --ldaps-key <key-file>    Path to key file for the LDAPS server.
   --check-config            Check configuration file and exit.
+  --oidc-secret <client-id> Print the secret an OIDC application must use when
+                            oidc.clientSecrets is "derived", and exit.
   -h, --help                Show this screen.
   --version                 Show version.
 `
@@ -86,6 +88,11 @@ func main() {
 
 	if checkConfig {
 		fmt.Println("Config file seems ok (but I am not checking much at this time)")
+		return
+	}
+
+	if clientID, ok := args["--oidc-secret"].(string); ok {
+		printOIDCSecret(cfg, clientID)
 		return
 	}
 
@@ -165,6 +172,13 @@ func startService() {
 		}
 	}
 
+	ldapEnabled := activeConfig.LDAP.Enabled || activeConfig.LDAPS.Enabled
+	if !ldapEnabled {
+		// This process only serves OIDC, against another glauth's LDAP server.
+		runOIDC()
+		return
+	}
+
 	s, err := server.NewServer(
 		server.Logger(log),
 		server.Config(activeConfig),
@@ -195,6 +209,10 @@ func startService() {
 				os.Exit(1)
 			}
 		}()
+	}
+
+	if activeConfig.OIDC.Enabled {
+		go runOIDC()
 	}
 
 	c := make(chan os.Signal, 1)

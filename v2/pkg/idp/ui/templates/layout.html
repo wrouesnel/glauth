@@ -1,0 +1,20 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · {{.Brand}}</title>
+<link rel="stylesheet" href="{{.Base}}/static/style.css">
+{{if .CustomCSS}}<link rel="stylesheet" href="{{.Base}}/static/custom.css">{{end}}
+</head>
+<body>
+<main class="card">
+<header>
+{{if .Logo}}<img class="logo" src="{{.Base}}/static/logo" alt="">{{end}}
+<p class="brand">{{.Brand}}</p>
+</header>
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

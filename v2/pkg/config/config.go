@@ -125,6 +125,51 @@ type (
 		IncludeGroups []int
 	}
 
+	// OIDC configures the OpenID Connect provider. Applications served from hosts under
+	// Domain can sign users in without being registered: the client ID is the
+	// application's host name, and tokens are only ever sent back to that host.
+	OIDC struct {
+		Enabled     bool
+		Domain      string // the domain we serve; the issuer defaults to https://auth.<Domain>
+		Issuer      string // public URL of the provider, if not https://auth.<Domain>
+		Listen      string // HTTP listen address, usually behind a reverse proxy (default 0.0.0.0:8080)
+		TLSCertPath string // serve HTTPS directly with this certificate and key
+		TLSKeyPath  string
+		// LDAP server to check passwords against, as ldap://host:port or ldaps://host:port.
+		// Defaults to this process's own LDAP listener.
+		LDAP          string
+		LDAPInsecure  bool   // skip certificate verification for ldaps://
+		BaseDN        string // defaults to the first backend's BaseDN
+		NameAttribute string // attribute naming users in bind DNs; defaults to the first backend's name format
+		StateDir      string // where signing keys are kept; keys are regenerated on every start if empty
+		// ClientSecrets says how secrets from applications that aren't listed in Clients are
+		// checked: "ignore" (the default) accepts any secret, "derived" requires the
+		// secret printed by "glauth oidc-secret <client-id>".
+		ClientSecrets   string
+		TrustedDomains  []string      // further domains whose hosts may sign users in; Domain is always trusted
+		SessionLifetime time.Duration // how long a sign-in lasts before the password is asked again (default 12h)
+		Clients         []OIDCClient
+		Branding        OIDCBranding
+	}
+
+	// OIDCClient is an application with settings of its own: one outside the trusted
+	// domains, one that should only admit some groups, or one with a fixed secret.
+	OIDCClient struct {
+		ID           string
+		Name         string   // shown on the sign-in page
+		Secret       string   // if set, the application must present it
+		RedirectURIs []string // patterns, where ** matches any path
+		Groups       []string // if set, only members of these groups may sign in
+	}
+
+	// OIDCBranding customises the sign-in pages.
+	OIDCBranding struct {
+		Name      string // shown as the page title (default: the domain)
+		Logo      string // path to an image file shown above the form
+		CSS       string // path to a stylesheet loaded after the built-in one
+		Templates string // directory of templates replacing the built-in ones
+	}
+
 	Tracing struct {
 		Enabled      bool
 		GRPCEndpoint string
@@ -146,6 +191,7 @@ type (
 		Frontend           Frontend
 		LDAP               LDAP
 		LDAPS              LDAPS
+		OIDC               OIDC
 		Groups             []Group
 		Users              []User
 		Tracing            Tracing

@@ -12,6 +12,10 @@ Build without CGO. Only the `pam` backend needs cgo, behind the `pam` build tag.
 Backends live in `v2/pkg/backends/<name>`, register themselves by datastore name
 from `init()`, and are imported by `v2/pkg/backends/all`.
 
+The OpenID Connect provider is `v2/pkg/idp`, built on `github.com/zitadel/oidc/v3`'s
+`op` package. It signs users in by binding to LDAP as them, and trusts any client ID
+that is a host name under its domain, sending tokens only to that host.
+
 ## Build commands
 
 Run all build commands from the repository root. `go run mage.go -l` lists every target.

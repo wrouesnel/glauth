@@ -26,7 +26,7 @@ LABEL org.opencontainers.image.title="GLAuth" \
 COPY --from=build /out/glauth /bin/glauth
 COPY docker-default.cfg /config/config.cfg
 
-EXPOSE 389 636 5555
+EXPOSE 389 636 5555 8080
 
 ENTRYPOINT ["/bin/glauth"]
 CMD ["-c", "/config/config.cfg"]

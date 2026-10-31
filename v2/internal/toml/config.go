@@ -379,8 +379,17 @@ func handleLegacyConfig(cfg *config.Config) (*config.Config, error) {
 }
 func validateConfig(cfg *config.Config) (*config.Config, error) {
 
-	if !cfg.LDAP.Enabled && !cfg.LDAPS.Enabled {
-		return cfg, fmt.Errorf("no server configuration found: please provide either LDAP or LDAPS configuration")
+	if !cfg.LDAP.Enabled && !cfg.LDAPS.Enabled && !cfg.OIDC.Enabled {
+		return cfg, fmt.Errorf("no server configuration found: please provide either LDAP, LDAPS or OIDC configuration")
+	}
+
+	if cfg.OIDC.Enabled {
+		if cfg.OIDC.Domain == "" && cfg.OIDC.Issuer == "" {
+			return cfg, fmt.Errorf("OIDC is enabled, but neither its domain nor its issuer is set")
+		}
+		if !cfg.LDAP.Enabled && !cfg.LDAPS.Enabled && cfg.OIDC.LDAP == "" {
+			return cfg, fmt.Errorf("OIDC is enabled without an LDAP server here, so it needs the 'ldap' option to say where one is")
+		}
 	}
 
 	if cfg.LDAPS.Enabled {
