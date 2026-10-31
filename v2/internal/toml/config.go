@@ -398,6 +398,15 @@ func validateConfig(cfg *config.Config) (*config.Config, error) {
 			return cfg, fmt.Errorf("no LDAPS bind address was specified: please disable LDAPS or use the 'listen' option")
 		}
 
+		// After this, CertPath and KeyPath name the files the certificate and key were
+		// read from, so they can be reloaded, or are empty if given inline.
+		if strings.HasPrefix(cfg.LDAPS.Cert, "-----") {
+			cfg.LDAPS.CertPath = ""
+		}
+		if strings.HasPrefix(cfg.LDAPS.Key, "-----") {
+			cfg.LDAPS.KeyPath = ""
+		}
+
 		if cfg.LDAPS.Cert == "" && cfg.LDAPS.CertPath != "" {
 			byteData, err := os.ReadFile(cfg.LDAPS.CertPath)
 			if err != nil {
@@ -418,6 +427,7 @@ func validateConfig(cfg *config.Config) (*config.Config, error) {
 		// In the olden times, we would simply say "please read from this file"
 		// This is now the role of the Path files.
 		if !strings.HasPrefix(cfg.LDAPS.Cert, "-----") {
+			cfg.LDAPS.CertPath = cfg.LDAPS.Cert
 			byteData, err := os.ReadFile(cfg.LDAPS.Cert)
 			if err != nil {
 				return cfg, fmt.Errorf("unable to read TLS certificate file")
@@ -425,6 +435,7 @@ func validateConfig(cfg *config.Config) (*config.Config, error) {
 			cfg.LDAPS.Cert = string(byteData)
 		}
 		if !strings.HasPrefix(cfg.LDAPS.Key, "-----") {
+			cfg.LDAPS.KeyPath = cfg.LDAPS.Key
 			byteData, err := os.ReadFile(cfg.LDAPS.Key)
 			if err != nil {
 				return cfg, fmt.Errorf("unable to read TLS key file")
@@ -444,6 +455,14 @@ func validateConfig(cfg *config.Config) (*config.Config, error) {
 		}
 
 		if cfg.LDAP.TLS {
+			// As for LDAPS, the paths are left naming the files read, if any.
+			if cfg.LDAP.TLSCert != "" {
+				cfg.LDAP.TLSCertPath = ""
+			}
+			if cfg.LDAP.TLSKey != "" {
+				cfg.LDAP.TLSKeyPath = ""
+			}
+
 			if cfg.LDAP.TLSCert == "" && cfg.LDAP.TLSCertPath != "" {
 				byteData, err := os.ReadFile(cfg.LDAP.TLSCertPath)
 				if err != nil {

@@ -153,8 +153,7 @@ func startService() {
 	var err error
 	var starttlsConfig *tls.Config
 	if c := activeConfig.LDAP; c.Enabled && c.TLS {
-		// TODO check if tls params are string or bytes and change config accordingly
-		starttlsConfig, err = _tls.MakeTLS([]byte(c.TLSCert), []byte(c.TLSKey), c.LegacyTLS)
+		starttlsConfig, err = makeTLS(c.TLSCert, c.TLSKey, c.TLSCertPath, c.TLSKeyPath, c.LegacyTLS)
 
 		if err != nil {
 			log.Warn().Err(err).Msg("unable to configure TLS for StartTLS: StartTLS won't be supported")
@@ -163,8 +162,7 @@ func startService() {
 
 	var ldapstlsConfig *tls.Config
 	if c := activeConfig.LDAPS; c.Enabled {
-		// TODO check if tls params are string or bytes and change config accordingly
-		ldapstlsConfig, err = _tls.MakeTLS([]byte(c.Cert), []byte(c.Key), c.LegacyTLS)
+		ldapstlsConfig, err = makeTLS(c.Cert, c.Key, c.CertPath, c.KeyPath, c.LegacyTLS)
 
 		if err != nil {
 			log.Warn().Err(err).Msg("unable to configure TLS for LDAPS")
@@ -303,4 +301,13 @@ func parseArgs() error {
 
 func getConfigLocation() string {
 	return args["--config"].(string)
+}
+
+// makeTLS configures TLS with a certificate and key, reloading them when they change
+// if they were read from files.
+func makeTLS(cert, key, certPath, keyPath string, legacy bool) (*tls.Config, error) {
+	if certPath != "" && keyPath != "" {
+		return _tls.MakeTLSFromFiles(certPath, keyPath, legacy, log)
+	}
+	return _tls.MakeTLS([]byte(cert), []byte(key), legacy)
 }

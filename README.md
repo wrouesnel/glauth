@@ -26,6 +26,7 @@ This is a fork inspired by [glauth/glauth](https://github.com/glauth/glauth), de
 - It is built with [mage](https://magefile.org): `go run mage.go binary` builds `./glauth`, and `go run mage.go -l` lists the other targets (`test`, `lint`, `style`, `releaseAll`, …). The container image is `ghcr.io/wrouesnel/glauth`.
 - Releases are tagged `wrouesnel-v<semver>`, and its versions carry a `+wrouesnel` marker, e.g. `v2.6.0+wrouesnel`.
 - It is also an OpenID Connect provider, so applications that don't speak LDAP can sign users in against the same accounts. See below.
+- TLS certificates and keys read from files (`[ldap]` StartTLS, `[ldaps]`, `[api]` and `[oidc]`) are reloaded when they change, within ten seconds, so renewing a certificate doesn't need a restart. If the new files don't make a valid pair yet, as halfway through a renewal, the previous certificate stays in use until they do. Certificates given inline in the config are only read at start.
 
 ### OpenID Connect
 

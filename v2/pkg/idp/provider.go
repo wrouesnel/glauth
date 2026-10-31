@@ -5,6 +5,7 @@ package idp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 	"golang.org/x/text/language"
 
+	_tls "github.com/glauth/glauth/v2/internal/tls"
 	"github.com/glauth/glauth/v2/pkg/config"
 )
 
@@ -201,7 +203,13 @@ func (p *Provider) Run(ctx context.Context) error {
 	p.log.Info().Str("listen", listen).Str("issuer", p.issuer.String()).Strs("trustedDomains", p.settings.Load().trustedDomains).Msg("OIDC provider starting")
 	var err error
 	if p.cfg.TLSCertPath != "" {
-		err = srv.ListenAndServeTLS(p.cfg.TLSCertPath, p.cfg.TLSKeyPath)
+		// Renewed certificates are picked up without a restart.
+		keypair, kerr := _tls.LoadKeypair(p.cfg.TLSCertPath, p.cfg.TLSKeyPath, p.log)
+		if kerr != nil {
+			return fmt.Errorf("oidc: loading the TLS certificate: %w", kerr)
+		}
+		srv.TLSConfig = &tls.Config{GetCertificate: keypair.GetCertificate, MinVersion: tls.VersionTLS12}
+		err = srv.ListenAndServeTLS("", "")
 	} else {
 		err = srv.ListenAndServe()
 	}

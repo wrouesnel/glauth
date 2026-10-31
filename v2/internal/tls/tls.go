@@ -76,25 +76,40 @@ func MakeTLS(clientCert, key []byte, legacy bool) (*tls.Config, error) {
 	log.Debug().Interface("root.ca", rootCAs)
 	log.Debug().Interface("certificates", []tls.Certificate{cert})
 
+	cfg := serverConfig(legacy)
+	cfg.RootCAs = rootCAs
+	cfg.Certificates = []tls.Certificate{cert}
+	return cfg, nil
+}
+
+// MakeTLSFromFiles generates a tls.Config serving the certificate and key in these
+// files, reloading them when they change.
+func MakeTLSFromFiles(certPath, keyPath string, legacy bool, log zerolog.Logger) (*tls.Config, error) {
+	keypair, err := LoadKeypair(certPath, keyPath, log)
+	if err != nil {
+		return nil, err
+	}
+	cfg := serverConfig(legacy)
+	cfg.GetCertificate = keypair.GetCertificate
+	return cfg, nil
+}
+
+func serverConfig(legacy bool) *tls.Config {
 	if legacy {
 		return &tls.Config{
-			RootCAs:                  rootCAs,
 			MinVersion:               tls.VersionTLS10,
 			MaxVersion:               tls.VersionTLS13,
 			PreferServerCipherSuites: true,
 			CipherSuites:             nil,
-			Certificates:             []tls.Certificate{cert},
-		}, nil
+		}
 	}
 
 	return &tls.Config{
-		RootCAs:                  rootCAs,
 		MinVersion:               tls.VersionTLS12,
 		MaxVersion:               tls.VersionTLS13,
 		PreferServerCipherSuites: true,
 		CipherSuites:             secureCipherSuites,
-		Certificates:             []tls.Certificate{cert},
-	}, nil
+	}
 }
 
 // DecodePEM builds a PEM certificate object

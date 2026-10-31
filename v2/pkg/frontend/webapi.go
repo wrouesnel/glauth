@@ -1,10 +1,12 @@
 package frontend
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
 	"github.com/glauth/glauth/v2/internal/monitoring"
+	_tls "github.com/glauth/glauth/v2/internal/tls"
 	"github.com/glauth/glauth/v2/pkg/assets"
 )
 
@@ -23,7 +25,13 @@ func RunAPI(opts ...Option) {
 		log.Info().Str("address", cfg.Listen).Msg("Starting HTTPS server")
 
 		monitoring.NewCollector(fmt.Sprintf("https://%s/debug/vars", cfg.Listen))
-		if err := http.ListenAndServeTLS(cfg.Listen, cfg.Cert, cfg.Key, nil); err != nil {
+		keypair, err := _tls.LoadKeypair(cfg.Cert, cfg.Key, log)
+		if err != nil {
+			log.Error().Err(err).Msg("error loading the HTTPS server's certificate")
+			return
+		}
+		srv := &http.Server{Addr: cfg.Listen, TLSConfig: &tls.Config{GetCertificate: keypair.GetCertificate}} //nolint:gosec // as http.ListenAndServeTLS did
+		if err := srv.ListenAndServeTLS("", ""); err != nil {
 			log.Error().Err(err).Msg("error starting HTTPS server")
 		}
 
