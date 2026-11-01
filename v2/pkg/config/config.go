@@ -141,7 +141,15 @@ type (
 		LDAPInsecure  bool   // skip certificate verification for ldaps://
 		BaseDN        string // defaults to the first backend's BaseDN
 		NameAttribute string // attribute naming users in bind DNs; defaults to the first backend's name format
-		StateDir      string // where signing keys are kept; keys are regenerated on every start if empty
+		// BindFormat is what users bind to LDAP as, with {username} and {baseDN}
+		// in it, as {username}@example.com for Active Directory; by default
+		// <NameAttribute>={username},{baseDN}.
+		BindFormat string
+		// UserFilter finds the signing-in user's entry, with {username} in it, as
+		// (&(objectClass=user)(sAMAccountName={username})) for Active Directory; by
+		// default (&(objectClass=posixAccount)(<NameAttribute>={username})).
+		UserFilter string
+		StateDir   string // where signing keys are kept; keys are regenerated on every start if empty
 		// ClientSecrets says how secrets from applications that aren't listed in Clients are
 		// checked: "ignore" (the default) accepts any secret, "derived" requires the
 		// secret printed by "glauth oidc-secret <client-id>".

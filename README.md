@@ -68,6 +68,8 @@ Signing in to one application signs the browser in to all of them for `sessionLi
 
 The provider binds to LDAP as the user who is signing in and reads their own entry, so it needs no service account. By default it uses the same process's LDAP listener. To run it separately, for example without access to `/etc/shadow`, give a second glauth a config with only an `[oidc]` section, `[ldaps] enabled = false`, and `ldap = "ldap://ldap-host:3893"` and `baseDN` set. See `v2/sample-oidc.cfg`.
 
+Against Active Directory, or a glauth whose `ldap` backend forwards to it, users bind by their UPN, and their entries are found by `sAMAccountName`: set `bindFormat = "{username}@example.com"` and `userFilter = "(&(objectClass=user)(sAMAccountName={username}))"` in `[oidc]`. AD refuses the bind of a disabled or locked-out account, so the provider signs them in no more than AD would.
+
 #### Administration
 
 With `adminGroups = ["admins"]` in `[oidc]`, members of those groups can manage the provider at `https://auth.<domain>/admin`. They can:

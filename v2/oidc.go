@@ -40,7 +40,8 @@ func runOIDC() {
 // oidcAuthenticator checks passwords against oidc.ldap, or else this process's own
 // LDAP listener.
 func oidcAuthenticator(c *config.Config) (*idp.LDAPAuthenticator, error) {
-	a := &idp.LDAPAuthenticator{URL: c.OIDC.LDAP, BaseDN: c.OIDC.BaseDN, NameAttribute: c.OIDC.NameAttribute}
+	a := &idp.LDAPAuthenticator{URL: c.OIDC.LDAP, BaseDN: c.OIDC.BaseDN, NameAttribute: c.OIDC.NameAttribute,
+		BindFormat: c.OIDC.BindFormat, UserFilter: c.OIDC.UserFilter}
 	if len(c.Backends) > 0 {
 		if a.BaseDN == "" {
 			a.BaseDN = c.Backends[0].BaseDN

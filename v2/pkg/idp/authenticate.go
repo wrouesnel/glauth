@@ -42,8 +42,32 @@ type LDAPAuthenticator struct {
 	URL           string // ldap://host:port or ldaps://host:port
 	BaseDN        string
 	NameAttribute string
-	TLSConfig     *tls.Config
-	Timeout       time.Duration
+	// BindFormat is what the user binds as, with {username} and {baseDN} in it:
+	// by default {nameAttribute}={username},{baseDN}, as glauth names its users.
+	// Active Directory's users bind as {username}@domain.
+	BindFormat string
+	// UserFilter finds the user's own entry, with {username} in it: by default
+	// (&(objectClass=posixAccount)({nameAttribute}={username})). Active
+	// Directory's are (&(objectClass=user)(sAMAccountName={username})).
+	UserFilter string
+	TLSConfig  *tls.Config
+	Timeout    time.Duration
+}
+
+// bindDN is what username binds as.
+func (a *LDAPAuthenticator) bindDN(username string) string {
+	if a.BindFormat == "" {
+		return fmt.Sprintf("%s=%s,%s", a.NameAttribute, username, a.BaseDN)
+	}
+	return strings.NewReplacer("{username}", username, "{baseDN}", a.BaseDN).Replace(a.BindFormat)
+}
+
+// userFilter finds username's entry.
+func (a *LDAPAuthenticator) userFilter(username string) string {
+	if a.UserFilter == "" {
+		return fmt.Sprintf("(&(objectClass=posixAccount)(%s=%s))", a.NameAttribute, username)
+	}
+	return strings.ReplaceAll(a.UserFilter, "{username}", username)
 }
 
 func (a *LDAPAuthenticator) Authenticate(ctx context.Context, username, password string) (*Identity, error) {
@@ -61,8 +85,7 @@ func (a *LDAPAuthenticator) Authenticate(ctx context.Context, username, password
 	timer := time.AfterFunc(a.timeout(), conn.Close)
 	defer timer.Stop()
 
-	dn := fmt.Sprintf("%s=%s,%s", a.NameAttribute, username, a.BaseDN)
-	if err := conn.Bind(dn, password); err != nil {
+	if err := conn.Bind(a.bindDN(username), password); err != nil {
 		var lerr *ldap.Error
 		if errors.As(err, &lerr) && (lerr.ResultCode == ldap.LDAPResultInvalidCredentials ||
 			lerr.ResultCode == ldap.LDAPResultUnwillingToPerform) {
@@ -71,7 +94,7 @@ func (a *LDAPAuthenticator) Authenticate(ctx context.Context, username, password
 		return nil, fmt.Errorf("binding to %s: %w", a.URL, err)
 	}
 
-	filter := fmt.Sprintf("(&(objectClass=posixAccount)(%s=%s))", a.NameAttribute, username)
+	filter := a.userFilter(username)
 	res, err := conn.Search(ldap.NewSearchRequest(a.BaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
 		2, 0, false, filter,
 		[]string{"uid", "cn", "displayName", "givenName", "sn", "mail", "memberOf"}, nil))

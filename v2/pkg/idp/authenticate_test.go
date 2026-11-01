@@ -94,3 +94,29 @@ func TestLDAPAuthenticator(t *testing.T) {
 		t.Fatalf("server down: got %v, want a connection error", err)
 	}
 }
+
+// A directory whose users bind by another name than their DN, as Active
+// Directory's do by UPN: glauth takes binds by mail address the same way.
+func TestLDAPAuthenticatorBindFormat(t *testing.T) {
+	a := &LDAPAuthenticator{URL: startLDAP(t), BaseDN: "dc=example,dc=com", NameAttribute: "cn",
+		BindFormat: "{username}@example.com",
+		UserFilter: "(&(objectClass=posixAccount)(mail={username}@example.com))"}
+	ctx := context.Background()
+	id, err := a.Authenticate(ctx, "alice", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Username != "alice" || id.Email != "alice@example.com" {
+		t.Fatalf("identity: %+v", id)
+	}
+	if _, err := a.Authenticate(ctx, "alice", "wrong"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("wrong password: got %v", err)
+	}
+	if got := a.bindDN("bob"); got != "bob@example.com" {
+		t.Errorf("bindDN: %q", got)
+	}
+	b := &LDAPAuthenticator{BaseDN: "dc=example,dc=com", BindFormat: "uid={username},ou=people,{baseDN}"}
+	if got := b.bindDN("bob"); got != "uid=bob,ou=people,dc=example,dc=com" {
+		t.Errorf("bindDN with {baseDN}: %q", got)
+	}
+}
