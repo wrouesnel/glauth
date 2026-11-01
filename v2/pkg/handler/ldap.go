@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/glauth/glauth/v2/internal/monitoring"
+	"github.com/glauth/glauth/v2/pkg/augment"
 	"github.com/glauth/glauth/v2/pkg/config"
 	"github.com/glauth/glauth/v2/pkg/stats"
 	"github.com/glauth/ldap"
@@ -38,6 +39,8 @@ type ldapHandler struct {
 	servers  []ldapBackend
 	helper   Handler
 	attm     *regexp.Regexp
+	// augment adds to the entries forwarded from the directory.
+	augment augment.Chain
 
 	monitor monitoring.MonitorInterface
 	tracer  trace.Tracer
@@ -81,6 +84,12 @@ func NewLdapHandler(opts ...Option) Handler {
 		monitor:  options.Monitor,
 		tracer:   options.Tracer,
 	}
+	chain, err := augment.New(handler.backend)
+	if err != nil {
+		handler.log.Error().Err(err).Msg("could not configure the backend's augmenters")
+		os.Exit(1)
+	}
+	handler.augment = chain
 	// parse LDAP URLs
 	for _, ldapurl := range handler.backend.Servers {
 		l, err := parseURL(ldapurl)
@@ -308,6 +317,17 @@ func (h ldapHandler) Search(boundDN string, searchReq ldap.SearchRequest, conn n
 				entry.Attributes = append(entry.Attributes, &ldap.EntryAttribute{Name: attbits[1], Values: []string{attbits[2]}})
 			}
 		}
+	}
+
+	// What the site adds to the directory's answers.
+	if err == nil && len(h.augment) > 0 {
+		req := &augment.Request{BoundDN: boundDN, Search: searchReq, Entries: sr.Entries}
+		if aerr := h.augment.Augment(ctx, req); aerr != nil {
+			h.log.Error().Err(aerr).Str("binddn", boundDN).Str("filter", searchReq.Filter).Msg("could not augment the search's entries")
+			stats.Frontend.Add("search_errors", 1)
+			return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultOperationsError}, aerr
+		}
+		sr.Entries = req.Entries
 	}
 
 	ssr := ldap.ServerSearchResult{

@@ -23,6 +23,7 @@ type (
 		MinUIDNumber              int      // For unix and pam backends only: hide accounts with a lower uid, unless they are in ExposeGroups or GroupWithSearchCapability
 		ExposeGroups              []string // For unix and pam backends only: members of these groups are shown regardless of MinUIDNumber
 		AnonymousDSE              bool     // For Config and Database backends only
+		Augment                   []string // For LDAP backend only: augmenters adding attributes to the entries it forwards (pkg/augment)
 	}
 
 	Helper struct {
