@@ -281,8 +281,10 @@ func (l LDAPOpsHelper) Search(ctx context.Context, h LDAPOpsHandler, bindDN stri
 		return ldap.ServerSearchResult{Entries: entries, Referrals: []string{}, Controls: []ldap.Control{}, ResultCode: ldapcode}, nil
 	}
 
-	// Past this point, there is no reason to allow anonymous searches
-	if anonymous {
+	// Past this point, there is no reason to allow anonymous searches, except for the
+	// schema when the root DSE is open too: clients that read one read the other
+	// before binding, and like the root DSE it describes the server, not its users.
+	if anonymous && (searchBaseDN != "cn=schema" || !h.GetBackend().AnonymousDSE) {
 		return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultInsufficientAccessRights}, fmt.Errorf("Search Error: Anonymous BindDN not allowed %s", bindDN)
 	}
 
