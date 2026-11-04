@@ -26,6 +26,7 @@ This is a fork inspired by [glauth/glauth](https://github.com/glauth/glauth), de
 - It is built with [mage](https://magefile.org): `go run mage.go binary` builds `./glauth`, and `go run mage.go -l` lists the other targets (`test`, `lint`, `style`, `releaseAll`, …). The container image is `ghcr.io/wrouesnel/glauth`.
 - Releases are tagged `wrouesnel-v<semver>`, and its versions carry a `+wrouesnel` marker, e.g. `v2.6.0+wrouesnel`.
 - It is also an OpenID Connect provider, so applications that don't speak LDAP can sign users in against the same accounts. See below.
+- The `ldap` backend, which forwards binds and searches to another directory (as Active Directory), can add attributes of a site's own to the entries it forwards, through augmenters (`v2/pkg/augment`) a backend names in `augment = [...]`. The directory still decides who exists and who may bind. None are built in yet.
 - TLS certificates and keys read from files (`[ldap]` StartTLS, `[ldaps]`, `[api]` and `[oidc]`) are reloaded when they change, within ten seconds, so renewing a certificate doesn't need a restart. If the new files don't make a valid pair yet, as halfway through a renewal, the previous certificate stays in use until they do. Certificates given inline in the config are only read at start.
 
 ### OpenID Connect
@@ -67,6 +68,8 @@ Signing in to one application signs the browser in to all of them for `sessionLi
 ```
 
 The provider binds to LDAP as the user who is signing in and reads their own entry, so it needs no service account. By default it uses the same process's LDAP listener. To run it separately, for example without access to `/etc/shadow`, give a second glauth a config with only an `[oidc]` section, `[ldaps] enabled = false`, and `ldap = "ldap://ldap-host:3893"` and `baseDN` set. See `v2/sample-oidc.cfg`.
+
+Against Active Directory, or a glauth whose `ldap` backend forwards to it, users bind by their UPN, and their entries are found by `sAMAccountName`: set `bindFormat = "{username}@example.com"` and `userFilter = "(&(objectClass=user)(sAMAccountName={username}))"` in `[oidc]`. AD refuses the bind of a disabled or locked-out account, so the provider signs them in no more than AD would.
 
 #### Administration
 

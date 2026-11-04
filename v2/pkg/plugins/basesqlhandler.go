@@ -193,12 +193,12 @@ func (h databaseHandler) FindUser(ctx context.Context, userName string, searchBy
 	err = h.database.cnx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(`
-			SELECT u.uidnumber,u.primarygroup,u.passbcrypt,u.passsha256,u.otpsecret,u.yubikey,u.disabled
+			SELECT u.name,u.uidnumber,u.primarygroup,u.passbcrypt,u.passsha256,u.otpsecret,u.yubikey,u.disabled
 			FROM users u WHERE %s=%s`,
 			criterion,
 			h.sqlBackend.GetPrepareSymbol(),
 		), userName).Scan(
-		&user.UIDNumber, &user.PrimaryGroup, &user.PassBcrypt, &user.PassSHA256, &user.OTPSecret, &user.Yubikey, &disabled)
+		&user.Name, &user.UIDNumber, &user.PrimaryGroup, &user.PassBcrypt, &user.PassSHA256, &user.OTPSecret, &user.Yubikey, &disabled)
 	if err == nil {
 		user.Disabled = h.intToBool(disabled)
 		if !user.Disabled {
