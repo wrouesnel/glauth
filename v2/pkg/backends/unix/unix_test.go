@@ -62,7 +62,7 @@ func TestVerifyPassword(t *testing.T) {
 const testPasswd = `root:x:0:0:root:/root:/bin/bash
 daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
 svc-search:x:998:998:Search service,,,:/nonexistent:/usr/sbin/nologin
-alice:x:1000:1000:Alice Example,,,:/home/alice:/bin/bash
+alice:x:1000:1000:Alice Example,,,,alice@example.org:/home/alice:/bin/bash
 bob:x:1001:1001::/home/bob:/bin/zsh
 broken line
 carol:x:1002:1002:Carol:/home/carol:/bin/bash
@@ -246,7 +246,7 @@ func TestEntries(t *testing.T) {
 		"uidNumber":     {"1000"},
 		"gidNumber":     {"1000"},
 		"givenName":     {"Alice Example"},
-		"gecos":         {"Alice Example,,,"},
+		"gecos":         {"Alice Example,,,,alice@example.org"},
 		"homeDirectory": {"/home/alice"},
 		"loginShell":    {"/bin/bash"},
 		"accountStatus": {"active"},
@@ -257,6 +257,9 @@ func TestEntries(t *testing.T) {
 		if got := attr(alice, name); !slices.Equal(got, want) {
 			t.Errorf("alice %s = %v, want %v", name, got, want)
 		}
+	}
+	if got := attr(alice, "mail"); got != nil {
+		t.Errorf("mail published without being set up: %v", got)
 	}
 	if got := attr(accounts[1], "accountStatus"); !slices.Equal(got, []string{"inactive"}) {
 		t.Errorf("bob accountStatus = %v, want inactive", got)
@@ -275,6 +278,68 @@ func TestEntries(t *testing.T) {
 	}
 	if got := attr(sudo, "uniqueMember"); !slices.Equal(got, []string{"cn=alice,ou=alice,ou=users,dc=example,dc=com"}) {
 		t.Errorf("sudo uniqueMember = %v", got)
+	}
+}
+
+func TestMail(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name    string
+		backend config.Backend
+		want    map[string]string // user name to address; "" for none
+	}{
+		{"off", config.Backend{},
+			map[string]string{"alice": "", "bob": "", "carol": ""}},
+		{"from GECOS", config.Backend{MailGecosField: 5},
+			map[string]string{"alice": "alice@example.org", "bob": "", "carol": ""}},
+		{"from the wrong GECOS field", config.Backend{MailGecosField: 1},
+			map[string]string{"alice": "", "bob": "", "carol": ""}},
+		{"from a template", config.Backend{MailTemplate: "{uid}@example.com"},
+			map[string]string{"alice": "alice@example.com", "bob": "bob@example.com", "carol": "carol@example.com"}},
+		{"from GECOS, else the template", config.Backend{MailGecosField: 5, MailTemplate: "{uid}@example.com"},
+			map[string]string{"alice": "alice@example.org", "bob": "bob@example.com", "carol": "carol@example.com"}},
+		{"with a template that isn't an address", config.Backend{MailTemplate: "{uid} at example.com"},
+			map[string]string{"alice": "", "bob": ""}},
+		{"with a negative field", config.Backend{MailGecosField: -1},
+			map[string]string{"alice": ""}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.backend.MinUIDNumber = 1000
+			h, _ := newTestHandler(t, tt.backend)
+			accounts, err := h.FindPosixAccounts(ctx, "ou=users")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, want := range tt.want {
+				_, u, _ := h.FindUser(ctx, name, false)
+				if u.Mail != want {
+					t.Errorf("%s's Mail = %q, want %q", name, u.Mail, want)
+				}
+				var entry *ldap.Entry
+				for _, e := range accounts {
+					if slices.Equal(attr(e, "uid"), []string{name}) {
+						entry = e
+					}
+				}
+				got := attr(entry, "mail")
+				if (want == "" && got != nil) || (want != "" && !slices.Equal(got, []string{want})) {
+					t.Errorf("%s's mail attribute = %v, want %q", name, got, want)
+				}
+			}
+		})
+	}
+
+	// A GECOS field with something other than an address in it is skipped.
+	for _, gecos := range []string{"Dave,,,,+61 400 000 000", "Dave,,,,Dave <dave@example.org>", "Dave,,,,dave"} {
+		h, _ := newTestHandler(t, config.Backend{MailGecosField: 5})
+		if got := h.mail(&account{Name: "dave", Gecos: gecos}); got != "" {
+			t.Errorf("GECOS %q gave address %q", gecos, got)
+		}
+	}
+	h, _ := newTestHandler(t, config.Backend{MailGecosField: 5})
+	if got := h.mail(&account{Name: "dave", Gecos: "Dave,,,, dave@example.org "}); got != "dave@example.org" {
+		t.Errorf("address with spaces around it: got %q", got)
 	}
 }
 

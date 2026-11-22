@@ -22,6 +22,8 @@ type (
 		UnixFilesDir              string   // For unix and pam backends only: directory holding passwd, shadow and group (default /etc)
 		MinUIDNumber              int      // For unix and pam backends only: hide accounts with a lower uid, unless they are in ExposeGroups or GroupWithSearchCapability
 		ExposeGroups              []string // For unix and pam backends only: members of these groups are shown regardless of MinUIDNumber
+		MailGecosField            int      // For unix and pam backends only: the comma-separated GECOS field holding users' email addresses, counting from 1 (5 is the "other" field); 0 for none
+		MailTemplate              string   // For unix and pam backends only: email address for users without one in GECOS, with {uid} replaced by the user name, e.g. "{uid}@example.com"
 		AnonymousDSE              bool     // For Config and Database backends only
 		Augment                   []string // For LDAP backend only: augmenters adding attributes to the entries it forwards (pkg/augment)
 	}

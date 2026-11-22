@@ -10,7 +10,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/mail"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/GeertJohan/yubigo"
@@ -61,6 +63,15 @@ func New(auth Authenticator, opts ...handler.Option) handler.Handler {
 		files:     newAccountFiles(options.Backend.UnixFilesDir),
 		auth:      auth,
 		now:       time.Now,
+	}
+
+	if h.backend.MailGecosField < 0 {
+		h.log.Error().Int("mailGecosField", h.backend.MailGecosField).Msg("mailGecosField counts GECOS fields from 1: not publishing addresses from GECOS")
+		h.backend.MailGecosField = 0
+	}
+	if t := h.backend.MailTemplate; t != "" && !isAddress(strings.ReplaceAll(t, "{uid}", "user")) {
+		h.log.Error().Str("mailTemplate", t).Msg("mailTemplate doesn't make an email address, such as {uid}@example.com: not using it")
+		h.backend.MailTemplate = ""
 	}
 
 	if snap, err := h.snapshot(); err != nil {
@@ -210,6 +221,7 @@ func (h unixHandler) FindUser(ctx context.Context, userName string, searchByUPN 
 	if ldapUser.GivenName == "" {
 		ldapUser.GivenName = a.Name
 	}
+	ldapUser.Mail = h.mail(a)
 	ldapUser.OtherGroups = append(ldapUser.OtherGroups, snap.memberOf[a.Name][1:]...)
 	if h.backend.GroupWithSearchCapability != "" && h.inGroup(snap, a.Name, h.backend.GroupWithSearchCapability) {
 		ldapUser.Capabilities = []config.Capability{{Action: "search", Object: "*"}}
@@ -286,6 +298,9 @@ func (h unixHandler) FindPosixAccounts(ctx context.Context, hierarchy string) (e
 		attrs = append(attrs, &ldap.EntryAttribute{Name: "description", Values: []string{a.Name}})
 		if a.Gecos != "" {
 			attrs = append(attrs, &ldap.EntryAttribute{Name: "gecos", Values: []string{a.Gecos}})
+		}
+		if addr := h.mail(a); addr != "" {
+			attrs = append(attrs, &ldap.EntryAttribute{Name: "mail", Values: []string{addr}})
 		}
 		if a.Home != "" {
 			attrs = append(attrs, &ldap.EntryAttribute{Name: "homeDirectory", Values: []string{a.Home}})
@@ -372,6 +387,29 @@ func (h unixHandler) FindPosixGroups(ctx context.Context, hierarchy string) (ent
 		entries = append(entries, &ldap.Entry{DN: dn, Attributes: attrs})
 	}
 	return entries, nil
+}
+
+// mail returns the account's email address: from its GECOS field if that holds one,
+// otherwise from the template. It's empty unless the backend is set up to publish
+// addresses.
+func (h unixHandler) mail(a *account) string {
+	if n := h.backend.MailGecosField; n > 0 {
+		if fields := strings.Split(a.Gecos, ","); n <= len(fields) {
+			if addr := strings.TrimSpace(fields[n-1]); isAddress(addr) {
+				return addr
+			}
+		}
+	}
+	if h.backend.MailTemplate != "" {
+		return strings.ReplaceAll(h.backend.MailTemplate, "{uid}", a.Name)
+	}
+	return ""
+}
+
+// isAddress says whether s is a bare email address, such as someone@example.com.
+func isAddress(s string) bool {
+	addr, err := mail.ParseAddress(s)
+	return err == nil && addr.Address == s
 }
 
 func containsString(list []string, v string) bool {
